@@ -1174,6 +1174,17 @@
                     <div class="section-title" style="flex-shrink:0;">
                         <h3><i class="fa-solid fa-chart-line"></i> <span data-i18n="trend_title">全景趋势分析</span></h3>
                         <div class="flex-row">
+                            <select id="trendWs" class="btn" style="padding:4px 8px; border-color:var(--midea-blue); color:var(--midea-blue);" onchange="renderTrend()">
+                                <option value="all">全部车间对比</option>
+                                <option value="PRO1">PRO1 车间</option>
+                                <option value="PRO2">PRO2 车间</option>
+                                <option value="PRO3">PRO3 车间</option>
+                                <option value="PRO4">PRO4 车间</option>
+                                <option value="H_MOTOR">H电机线产出</option>
+                                <option value="F_MOTOR">F电机线产出</option>
+                                <option value="S_MOTOR">S系列电机线产出</option>
+                                <option value="CRANK">曲轴线产出</option>
+                            </select>
                             <select id="trendMetric" class="btn" style="padding:4px 8px; border-color:var(--midea-blue); color:var(--midea-blue);" onchange="renderTrend()">
                                 <option value="upph" data-i18n="opt_upph">UPPH 达成趋势</option>
                                 <option value="o" data-i18n="opt_o">实际产出 趋势</option>
@@ -2529,9 +2540,9 @@
         const getEmptyDay = () => {
             let conf = db.dLinesConfig || { PRO1:[], PRO3:[], PRO4:[] };
             let day = { 'PRO2': { t: 0, o: 0, h: 0, att: 0, head: 0, lines: { 'LINE A':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE B':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE C':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE D':{t:0,o:0,h:0,shifts:{D:{t:0,o:0}}} } } };
-            ['PRO1', 'PRO3', 'PRO4'].forEach(ws => { day[ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, dLines: [] }; if (conf[ws]) conf[ws].forEach(l => { day[ws].dLines.push({ id: l.id, name: l.name, t:0, o:0, h:0, att:0, head:0 }); }); });
-            // 新增电机线指标
-            ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(ws => { day[ws] = { t: 0, o: 0, h: 0, att: 0, head: 0 }; });
+            ['PRO1', 'PRO3', 'PRO4'].forEach(ws => { day[ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, shifts: { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } }, dLines: [] }; if (conf[ws]) conf[ws].forEach(l => { day[ws].dLines.push({ id: l.id, name: l.name, t:0, o:0, h:0, att:0, head:0 }); }); });
+            // 新增电机线指标（带班次）
+            ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(ws => { day[ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, shifts: { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } } }; });
             return day;
         };
         const getEmptyDM = () => ({ 'PRO1':{am:0,pm:0}, 'PRO2':{am:0,pm:0}, 'PRO3':{am:0,pm:0}, 'PRO4':{am:0,pm:0} });
@@ -2574,9 +2585,14 @@
                         }
                     }
                 });
-                // 确保新电机线指标存在
+                // 确保新电机线指标存在（带班次）
                 ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(function(ws) {
-                    if(!db.prod[d][ws]) db.prod[d][ws] = {t:0,o:0,h:0,att:0,head:0};
+                    if(!db.prod[d][ws]) db.prod[d][ws] = {t:0,o:0,h:0,att:0,head:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}};
+                    if(!db.prod[d][ws].shifts) db.prod[d][ws].shifts = {D:{t:0,o:0},N:{t:0,o:0}};
+                });
+                // 确保 PRO1, PRO3, PRO4 有班次结构
+                ['PRO1', 'PRO3', 'PRO4'].forEach(function(ws) {
+                    if(db.prod[d][ws] && !db.prod[d][ws].shifts) db.prod[d][ws].shifts = {D:{t:0,o:0},N:{t:0,o:0}};
                 });
             }
         }
@@ -2811,6 +2827,23 @@
             }
         }
         window.updateCell = function(ws, field, val) { let dateStr = document.getElementById('globalDate').value; db.prod[dateStr][ws][field] = safeNum(val); triggerAutoSave(); renderInput(); };
+        // 新增：电机线班次数据更新函数
+        window.updateMotorShift = function(ws, shift, field, val) {
+            var dateStr = document.getElementById('globalDate').value;
+            if(!db.prod[dateStr]) db.prod[dateStr] = getEmptyDay();
+            if(!db.prod[dateStr][ws]) db.prod[dateStr][ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, shifts: { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } } };
+            if(!db.prod[dateStr][ws].shifts) db.prod[dateStr][ws].shifts = { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } };
+            if(!db.prod[dateStr][ws].shifts[shift]) db.prod[dateStr][ws].shifts[shift] = { t: 0, o: 0 };
+            db.prod[dateStr][ws].shifts[shift][field] = safeNum(val);
+            // 自动汇总班次数据到主行
+            var dT = safeNum(db.prod[dateStr][ws].shifts.D?.t) || 0;
+            var dO = safeNum(db.prod[dateStr][ws].shifts.D?.o) || 0;
+            var nT = safeNum(db.prod[dateStr][ws].shifts.N?.t) || 0;
+            var nO = safeNum(db.prod[dateStr][ws].shifts.N?.o) || 0;
+            db.prod[dateStr][ws].t = dT + nT;
+            db.prod[dateStr][ws].o = dO + nO;
+            triggerAutoSave();
+        };
         // FIXED: 重写班次编辑函数，确保多线体数据互不干扰
         window.updateShiftCell = function(lineName, shift, field, val) {
             var dateStr = document.getElementById('globalDate').value;
@@ -2924,15 +2957,23 @@
                 }
                 htmlStr += `<tr class="row-spacer"><td colspan="8"></td></tr>`;
             });
-            // 第二部分：新增独立产线产出指标（H电机线、F电机线、S系列电机线、曲轴线）
+            // 第二部分：新增独立产线产出指标（H电机线、F电机线、S系列电机线、曲轴线）- 带班次输入
             htmlStr += '<tr><td colspan="8" style="text-align:left; padding:12px 15px 8px; font-weight:900; color:var(--midea-blue); background:linear-gradient(90deg, rgba(0,163,224,0.08), transparent); border-radius:4px; font-size:13px;"><i class="fa-solid fa-microchip" style="margin-right:6px;"></i>独立产线产出指标</td></tr>';
             ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(function(ws) {
-                var wData = data[ws] || { t: 0, o: 0, h: 0, att: 0, head: 0 };
+                var wData = data[ws] || { t: 0, o: 0, h: 0, att: 0, head: 0, shifts: { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } } };
+                var shifts = wData.shifts || { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } };
+                var dShift = shifts.D || { t: 0, o: 0 };
+                var nShift = shifts.N || { t: 0, o: 0 };
                 var m = calcWsData(date, ws);
                 var displayName = NEW_MOTOR_NAMES[ws] || ws;
                 var lossVal = m.output < m.target ? (m.output - m.target) : 0;
                 var lossColor = lossVal < 0 ? 'val-danger' : '';
+                // 主行
                 htmlStr += '<tr class="row-parent"><td style="text-align:left; padding-left:15px; display:flex; align-items:center; height:36px; border-bottom: none;"><i class="fa-solid fa-circle" style="font-size:6px; color:var(--midea-blue); margin-right:8px;"></i><span style="font-weight:900;">'+displayName+'</span><span id="ach-'+ws+'" style="margin-left:6px;font-size:10px;font-weight:800;display:inline-flex;align-items:center;gap:2px;"></span></td><td><input type="number" id="inp_'+ws+'_t" value="'+(wData.t||0)+'" onchange="updateCell(\''+ws+'\', \'t\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_o" value="'+(wData.o||0)+'" onchange="updateCell(\''+ws+'\', \'o\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_h" value="'+(wData.h||0)+'" onchange="updateCell(\''+ws+'\', \'h\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_att" value="'+safeNum(wData.att)+'" onchange="updateCell(\''+ws+'\', \'att\', this.value); syncInputToProdReport()" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="number" id="inp_'+ws+'_head" value="'+safeNum(wData.head)+'" onchange="updateCell(\''+ws+'\', \'head\', this.value); syncInputToProdReport()" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="text" readonly value="'+m.upph+'" class="'+(m.upph>=23?'val-success':'val-danger')+'"></td><td><input type="text" readonly value="'+(lossVal===0?'0':lossVal)+'" class="'+lossColor+'"></td></tr>';
+                // 白班行
+                htmlStr += '<tr style="background:rgba(245, 250, 255, 0.6);"><td style="text-align:left; padding-left:45px; color:var(--midea-blue); font-size:11px; font-weight:600; height:28px; border:none;">  └ 白班</td><td><input type="number" value="'+(dShift.t||0)+'" onchange="updateMotorShift(\''+ws+'\', \'D\', \'t\', this.value); syncInputToProdReport()" style="width:65px;padding:2px 4px;font-size:11px;"></td><td><input type="number" value="'+(dShift.o||0)+'" onchange="updateMotorShift(\''+ws+'\', \'D\', \'o\', this.value); syncInputToProdReport()" style="width:65px;padding:2px 4px;font-size:11px;" class="'+((dShift.o||0) >= (dShift.t||0) ? '' : 'val-danger-bg')+'"></td><td><span style="color:#94a3b8;font-size:10px;">-</span></td><td colspan="2"><span style="color:#94a3b8;font-size:10px;">-</span></td><td><span style="color:#94a3b8;font-size:10px;">-</span></td><td><input type="text" readonly value="'+(Number(dShift.o||0)-Number(dShift.t||0))+'" class="'+(Number(dShift.o||0) < Number(dShift.t||0) ? 'val-danger' : 'val-success')+'" style="font-size:11px;"></td></tr>';
+                // 夜班行
+                htmlStr += '<tr style="background:rgba(245, 250, 255, 0.4);"><td style="text-align:left; padding-left:45px; color:var(--midea-blue); font-size:11px; font-weight:600; height:28px; border:none;">  └ 夜班</td><td><input type="number" value="'+(nShift.t||0)+'" onchange="updateMotorShift(\''+ws+'\', \'N\', \'t\', this.value); syncInputToProdReport()" style="width:65px;padding:2px 4px;font-size:11px;"></td><td><input type="number" value="'+(nShift.o||0)+'" onchange="updateMotorShift(\''+ws+'\', \'N\', \'o\', this.value); syncInputToProdReport()" style="width:65px;padding:2px 4px;font-size:11px;" class="'+((nShift.o||0) >= (nShift.t||0) ? '' : 'val-danger-bg')+'"></td><td><span style="color:#94a3b8;font-size:10px;">-</span></td><td colspan="2"><span style="color:#94a3b8;font-size:10px;">-</span></td><td><span style="color:#94a3b8;font-size:10px;">-</span></td><td><input type="text" readonly value="'+(Number(nShift.o||0)-Number(nShift.t||0))+'" class="'+(Number(nShift.o||0) < Number(nShift.t||0) ? 'val-danger' : 'val-success')+'" style="font-size:11px;"></td></tr>';
                 htmlStr += '<tr class="row-spacer"><td colspan="8"></td></tr>';
             });
             tbody.innerHTML = htmlStr;
@@ -3005,74 +3046,121 @@
             if (typeof Chart !== 'undefined') {
                 const ctx = document.getElementById('chartMonitor').getContext('2d'); if(chartMon) { chartMon.destroy(); chartMon = null; }
                 if(visibleCount === 1) {
-                    // 单一 WS → 显示该WS下各线体班次达成明细(分组标签)
+                    // 单一 WS → 显示该WS下班次达成明细
                     var singleWs = visibleList[0].ws;
-                    // 从 PRO2 lines 构建分组数据（优先使用录入的 shift 数据）
-                    var shiftGroups = [];
-                    if(db.prod[date] && db.prod[date].PRO2 && db.prod[date].PRO2.lines) {
-                        var lines = db.prod[date].PRO2.lines;
-                        Object.keys(lines).sort().forEach(function(ln) {
-                            var line = lines[ln];
-                            if(line.shifts) {
-                                var gLabel = ln.replace('LINE ','')+'线';
-                                ['D','N'].forEach(function(sh) {
-                                    if(ln === 'LINE D' && sh === 'N') return; // LINE D has no N班
-                                    var sd = line.shifts[sh] || {t:0,o:0};
-                                    shiftGroups.push({
-                                        group: gLabel,
-                                        label: sh+'班',
-                                        t: Number(sd.t) || 0,
-                                        o: Number(sd.o) || 0
+                    
+                    if(singleWs === 'PRO2') {
+                        // PRO2 特殊处理：显示 A/B/C/D 线体的白班/夜班
+                        var shiftGroups = [];
+                        if(db.prod[date] && db.prod[date].PRO2 && db.prod[date].PRO2.lines) {
+                            var lines = db.prod[date].PRO2.lines;
+                            Object.keys(lines).sort().forEach(function(ln) {
+                                var line = lines[ln];
+                                if(line.shifts) {
+                                    var gLabel = ln.replace('LINE ','')+'线';
+                                    ['D','N'].forEach(function(sh) {
+                                        if(ln === 'LINE D' && sh === 'N') return; // LINE D has no N班
+                                        var sd = line.shifts[sh] || {t:0,o:0};
+                                        shiftGroups.push({
+                                            group: gLabel,
+                                            label: sh+'班',
+                                            t: Number(sd.t) || 0,
+                                            o: Number(sd.o) || 0
+                                        });
                                     });
-                                });
-                            }
-                        });
-                    }
-                    if(shiftGroups.length === 0) {
-                        // 无录入数据时降级显示
-                        ['A-D','A-N','B-D','B-N','C-D','C-N','D-D'].forEach(function(sl, idx) {
-                            var base = visibleList[0].out / 8;
-                            shiftGroups.push({
-                                group: sl.charAt(0)+'线',
-                                label: sl.charAt(2)+'班',
-                                t: Math.round(base),
-                                o: Math.round(base * (0.85 + idx * 0.05))
-                            });
-                        });
-                    }
-                    var sLabels = shiftGroups.map(function(g){ return g.group+'·'+g.label; });
-                    var sTargets = shiftGroups.map(function(g){ return g.t; });
-                    var sActuals = shiftGroups.map(function(g){ return g.o; });
-                    var sColors = shiftGroups.map(function(g){ return g.o >= g.t ? 'rgba(0,146,216,0.85)' : 'rgba(225,29,72,0.8)'; });
-                    // 用分组颜色显示
-                    chartMon = new Chart(ctx, { 
-                        type: 'bar',
-                        data: { 
-                            labels: sLabels,
-                            datasets: [
-                                { label:'目标', data: sTargets, backgroundColor: 'rgba(203,213,225,0.7)', borderRadius: 4 },
-                                { label:'实际', data: sActuals, backgroundColor: sColors, borderRadius: 4 }
-                            ]
-                        }, 
-                        options: {
-                            responsive: true, maintainAspectRatio: false,
-                            animation: { duration: 400, easing: 'easeOutQuart' },
-                            layout: { padding: { top: 22 } },
-                            plugins: {
-                                legend: { display: true, position: 'top', labels: { font: { size: 11, weight: 'bold' } } },
-                                datalabels: {
-                                    align: 'top', anchor: 'end', offset: -2,
-                                    color: function(c) { return c.datasetIndex === 1 ? '#0092D8' : '#64748b'; },
-                                    font: { weight: '800', size: 10 },
-                                    formatter: function(v) { return v ? v.toLocaleString() : '0'; }
                                 }
-                            },
-                            scales: {
-                                y: { beginAtZero: true, grace: '15%', grid: { color: 'rgba(0,146,216,0.06)' }, ticks: { font: { size: 10, weight: 'bold' } } },
-                                x: { grid: { display: false }, ticks: { maxRotation: 35, font: { size: 9, weight: 'bold' } } }
-                            }
+                            });
                         }
-                    });
+                        if(shiftGroups.length === 0) {
+                            // 无录入数据时降级显示
+                            ['A-D','A-N','B-D','B-N','C-D','C-N','D-D'].forEach(function(sl, idx) {
+                                var base = visibleList[0].out / 8;
+                                shiftGroups.push({
+                                    group: sl.charAt(0)+'线',
+                                    label: sl.charAt(2)+'班',
+                                    t: Math.round(base),
+                                    o: Math.round(base * (0.85 + idx * 0.05))
+                                });
+                            });
+                        }
+                        var sLabels = shiftGroups.map(function(g){ return g.group+'·'+g.label; });
+                        var sTargets = shiftGroups.map(function(g){ return g.t; });
+                        var sActuals = shiftGroups.map(function(g){ return g.o; });
+                        var sColors = shiftGroups.map(function(g){ return g.o >= g.t ? 'rgba(0,146,216,0.85)' : 'rgba(225,29,72,0.8)'; });
+                        chartMon = new Chart(ctx, { 
+                            type: 'bar',
+                            data: { 
+                                labels: sLabels,
+                                datasets: [
+                                    { label:'目标', data: sTargets, backgroundColor: 'rgba(203,213,225,0.7)', borderRadius: 4 },
+                                    { label:'实际', data: sActuals, backgroundColor: sColors, borderRadius: 4 }
+                                ]
+                            }, 
+                            options: {
+                                responsive: true, maintainAspectRatio: false,
+                                animation: { duration: 400, easing: 'easeOutQuart' },
+                                layout: { padding: { top: 22 } },
+                                plugins: {
+                                    legend: { display: true, position: 'top', labels: { font: { size: 11, weight: 'bold' } } },
+                                    datalabels: {
+                                        align: 'top', anchor: 'end', offset: -2,
+                                        color: function(c) { return c.datasetIndex === 1 ? '#0092D8' : '#64748b'; },
+                                        font: { weight: '800', size: 10 },
+                                        formatter: function(v) { return v ? v.toLocaleString() : '0'; }
+                                    }
+                                },
+                                scales: {
+                                    y: { beginAtZero: true, grace: '15%', grid: { color: 'rgba(0,146,216,0.06)' }, ticks: { font: { size: 10, weight: 'bold' } } },
+                                    x: { grid: { display: false }, ticks: { maxRotation: 35, font: { size: 9, weight: 'bold' } } }
+                                }
+                            }
+                        });
+                    } else {
+                        // 其他车间：显示白班目标、白班实际、夜班目标、夜班实际
+                        var wsData = db.prod[date] && db.prod[date][singleWs] ? db.prod[date][singleWs] : {};
+                        var shifts = wsData.shifts || { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } };
+                        var dShift = shifts.D || { t: 0, o: 0 };
+                        var nShift = shifts.N || { t: 0, o: 0 };
+                        var displayName = NEW_MOTOR_NAMES[singleWs] || singleWs;
+                        var sLabels = ['白班目标', '白班实际', '夜班目标', '夜班实际'];
+                        var sData = [
+                            Number(dShift.t) || 0,
+                            Number(dShift.o) || 0,
+                            Number(nShift.t) || 0,
+                            Number(nShift.o) || 0
+                        ];
+                        var sColors = [
+                            'rgba(203,213,225,0.7)',
+                            sData[1] >= sData[0] ? 'rgba(0,146,216,0.85)' : 'rgba(225,29,72,0.8)',
+                            'rgba(203,213,225,0.7)',
+                            sData[3] >= sData[2] ? 'rgba(0,146,216,0.85)' : 'rgba(225,29,72,0.8)'
+                        ];
+                        chartMon = new Chart(ctx, { 
+                            type: 'bar',
+                            data: { 
+                                labels: sLabels,
+                                datasets: [{ label: displayName, data: sData, backgroundColor: sColors, borderRadius: 6 }]
+                            }, 
+                            options: {
+                                responsive: true, maintainAspectRatio: false,
+                                animation: { duration: 400, easing: 'easeOutQuart' },
+                                layout: { padding: { top: 22 } },
+                                plugins: {
+                                    legend: { display: false },
+                                    datalabels: {
+                                        align: 'top', anchor: 'end', offset: -2,
+                                        color: '#0092D8',
+                                        font: { weight: '800', size: 12 },
+                                        formatter: function(v) { return v ? v.toLocaleString() : '0'; }
+                                    }
+                                },
+                                scales: {
+                                    y: { beginAtZero: true, grace: '15%', grid: { color: 'rgba(0,146,216,0.06)' }, ticks: { font: { size: 11, weight: 'bold' } } },
+                                    x: { grid: { display: false }, ticks: { font: { size: 12, weight: 'bold' } } }
+                                }
+                            }
+                        });
+                    }
                 } else {
                     // 多WS → 标准对比图（确保每个柱子顶部有数字标签）
                     chartMon = new Chart(ctx, { 
@@ -3873,10 +3961,35 @@
             Chart.register(ChartDataLabels);
         }
         window.renderTrend = function() {
-            let span = parseInt(document.getElementById('trendSpan').value); let metric = document.getElementById('trendMetric').value; let selectedDate = document.getElementById('globalDate').value;
-            let dates = Object.keys(db.prod).filter(d => d <= selectedDate).sort(); if(dates.length > span) dates = dates.slice(-span); if(dates.length === 0) { if(chartTrnd) chartTrnd.destroy(); return; }
-            let ds = { 'PRO1':[], 'PRO2':[], 'PRO3':[], 'PRO4':[] };
-            dates.forEach(d => { PRO_ORDER.forEach(ws => { let m = calcWsData(d, ws); let val = 0; if(metric==='upph') val = m.upph; else if(metric==='o') val = m.output; else if(metric==='h') val = m.hours; else if(metric==='loss') val = m.loss; else if(metric==='attRate') val = m.head>0 ? parseFloat((m.att/m.head*100).toFixed(1)) : 0; else if(metric==='head') val = m.head; ds[ws].push(val === 0 ? null : val); }); });
+            let span = parseInt(document.getElementById('trendSpan').value); 
+            let metric = document.getElementById('trendMetric').value; 
+            let wsFilter = document.getElementById('trendWs') ? document.getElementById('trendWs').value : 'all';
+            let selectedDate = document.getElementById('globalDate').value;
+            let dates = Object.keys(db.prod).filter(d => d <= selectedDate).sort(); 
+            if(dates.length > span) dates = dates.slice(-span); 
+            if(dates.length === 0) { if(chartTrnd) chartTrnd.destroy(); return; }
+            
+            // 定义所有车间
+            let allWs = ['PRO1', 'PRO2', 'PRO3', 'PRO4', 'H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'];
+            let displayWs = wsFilter === 'all' ? ['PRO1', 'PRO2', 'PRO3', 'PRO4'] : [wsFilter];
+            
+            // 收集数据
+            let ds = {};
+            allWs.forEach(function(ws) { ds[ws] = []; });
+            dates.forEach(function(d) { 
+                allWs.forEach(function(ws) { 
+                    let m = calcWsData(d, ws); 
+                    let val = 0; 
+                    if(metric==='upph') val = m.upph; 
+                    else if(metric==='o') val = m.output; 
+                    else if(metric==='h') val = m.hours; 
+                    else if(metric==='loss') val = m.loss; 
+                    else if(metric==='attRate') val = m.head>0 ? parseFloat((m.att/m.head*100).toFixed(1)) : 0; 
+                    else if(metric==='head') val = m.head; 
+                    ds[ws].push(val === 0 ? null : val); 
+                }); 
+            });
+            
             function getTrendLine(dataArray) {
                 let xSum=0, ySum=0, xxSum=0, xySum=0; let count = 0;
                 for (let i = 0; i < dataArray.length; i++) { if (dataArray[i] !== null && dataArray[i] !== undefined) { xSum += i; ySum += dataArray[i]; xxSum += i * i; xySum += i * dataArray[i]; count++; } }
@@ -3887,12 +4000,27 @@
                 const ctx = document.getElementById('chartTrend').getContext('2d'); if(chartTrnd) chartTrnd.destroy();
                 const config = (color) => ({ borderColor: color, backgroundColor: color, borderWidth:3, pointRadius:5, pointBackgroundColor:'white', pointBorderWidth: 2, tension:0.4, spanGaps: true });
                 const trendConfig = (color) => ({ borderColor: color, borderWidth:2, borderDash: [5, 5], pointRadius: 0, fill: false, tension: 0, pointHitRadius: 0 });
-                let datasets = [
-                    { label:'PRO1', data: ds['PRO1'], ...config('#64748b') }, { label:'PRO1_T', data: getTrendLine(ds['PRO1']), ...trendConfig('rgba(100, 116, 139, 0.4)') },
-                    { label:'PRO2', data: ds['PRO2'], ...config('#00A3E0') }, { label:'PRO2_T', data: getTrendLine(ds['PRO2']), ...trendConfig('rgba(0, 163, 224, 0.4)') },
-                    { label:'PRO3', data: ds['PRO3'], ...config('#f59e0b') }, { label:'PRO3_T', data: getTrendLine(ds['PRO3']), ...trendConfig('rgba(245, 158, 11, 0.4)') },
-                    { label:'PRO4', data: ds['PRO4'], ...config('#e11d48') }, { label:'PRO4_T', data: getTrendLine(ds['PRO4']), ...trendConfig('rgba(225, 29, 72, 0.4)') }
-                ];
+                
+                const wsColors = {
+                    'PRO1': '#64748b',
+                    'PRO2': '#00A3E0',
+                    'PRO3': '#f59e0b',
+                    'PRO4': '#e11d48',
+                    'H_MOTOR': '#8b5cf6',
+                    'F_MOTOR': '#06b6d4',
+                    'S_MOTOR': '#10b981',
+                    'CRANK': '#f97316'
+                };
+                
+                let datasets = [];
+                displayWs.forEach(function(ws) {
+                    let color = wsColors[ws] || '#64748b';
+                    let label = NEW_MOTOR_NAMES[ws] || ws;
+                    datasets.push({ label: label, data: ds[ws], ...config(color) });
+                    // 趋势线使用相同颜色但带透明度
+                    datasets.push({ label: label + '_T', data: getTrendLine(ds[ws]), ...trendConfig(color) });
+                });
+                
                 chartTrnd = new Chart(ctx, { 
                     type: 'line', data: { labels: dates.map(d=>d.substring(5)), datasets: datasets }, 
                     options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 30, right: 15 } }, interaction: { mode:'index', intersect:false }, plugins:{ legend:{ position:'top', labels:{ boxWidth:12, usePointStyle:true, filter: function(item) { return !item.text.includes('_T'); } }, onClick: function(e, legendItem, legend) { const index = legendItem.datasetIndex; const ci = legend.chart; const isVisible = ci.isDatasetVisible(index); ci.setDatasetVisibility(index, !isVisible); if (ci.data.datasets[index + 1] && ci.data.datasets[index + 1].label.includes('_T')) { ci.setDatasetVisibility(index + 1, !isVisible); } ci.update(); } }, datalabels: { display: function(context) { return context.dataset.data[context.dataIndex] !== null && !context.dataset.label.includes('_T'); }, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 4, borderColor: (c) => c.dataset.borderColor, borderWidth: 1, color: (c) => c.dataset.borderColor, font: { weight: '700', size: 11 }, padding: { top: 2, bottom: 2, left: 4, right: 4 }, offset: 8, align: function(context) { const idx = context.dataIndex; const totalPoints = context.dataset.data.length; const datasets = context.chart.data.datasets.filter(ds => !ds.label.includes('_T')); const dsIdx = datasets.indexOf(context.dataset); if (totalPoints > 20) { return idx % 2 === 0 ? 'top' : 'bottom'; } const positions = ['top', 'top', 'bottom', 'bottom']; return positions[dsIdx % 4]; }, anchor: 'end', formatter: function(value) { if (value === null) return ''; if (metric === 'attRate') return value + '%'; if (metric === 'upph') return parseFloat(value).toFixed(2); if (value >= 1000) return (value / 1000).toFixed(1) + 'k'; return value; } } }, scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(0,163,224,0.05)'}, grace: '20%'}} } 
