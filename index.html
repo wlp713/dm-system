@@ -18,7 +18,7 @@
             messagingSenderId: "262083858435",
             appId: "1:262083858435:web:d51fb541eded52261fbe36",
             measurementId: "G-1NVJLWJMVP",
-            databaseURL: "https://dm111-e8a7d-default-rtdb.asia-southeast1.firebasedatabase.app"
+            databaseURL: "https://dm111-e8a7d-default-rtdb.firebaseio.com"
         };
         
         const app = initializeApp(firebaseConfig);
@@ -2520,17 +2520,6 @@
                 showToast('fa-solid fa-xmark', '同步失败', 'error'); 
             } 
         }; 
-                            db.dm[row.id] = row.content.dm; 
-                            if(row.content.sqdip) db.sqdip[row.id] = row.content.sqdip; 
-                            if(row.content.sysOps) db.sysOps[row.id] = row.content.sysOps; 
-                            if (row.id === date) db.memo = row.content.memo || ''; 
-                        }
-                    });
-                }
-                repairData(); ensureProdData(date); ensureDMData(date); ensureSysData(date);
-                if (!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) refreshAllViews();
-            } catch (e) {}
-        }
         const getEmptyDay = () => {
             let conf = db.dLinesConfig || { PRO1:[], PRO3:[], PRO4:[] };
             let day = { 'PRO2': { t: 0, o: 0, h: 0, att: 0, head: 0, lines: { 'LINE A':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE B':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE C':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE D':{t:0,o:0,h:0,shifts:{D:{t:0,o:0}}} } } };
@@ -2712,7 +2701,7 @@
                 try {
                     const data = JSON.stringify({ db: db, clientId: CLIENT_ID, updatedAt: Date.now() });
                     // Firebase REST API 方式（使用 sendBeacon 确保发送）
-                    const url = 'https://dm111-e8a7d-default-rtdb.asia-southeast1.firebasedatabase.app/dm_system.json?auth=AIzaSyBrl-gHO48HnyM4e8nkl2vqR7mz4f5mv_E';
+                    const url = 'https://dm111-e8a7d-default-rtdb.firebaseio.com/dm_system.json?auth=AIzaSyBrl-gHO48HnyM4e8nkl2vqR7mz4f5mv_E';
                     navigator.sendBeacon(url, data);
                 } catch(e) { console.error('beforeunload sync failed:', e); }
             }
