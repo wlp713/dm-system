@@ -1181,12 +1181,6 @@
                                 <option value="h" data-i18n="opt_h">投入工时(H) 趋势</option>
                                 <option value="attRate" data-i18n="opt_attrate">出勤率 趋势</option>
                                 <option value="head" data-i18n="opt_head">绝对人数 趋势</option>
-                                <optgroup label="电机线产出趋势">
-                                    <option value="h_motor_o">H电机线产出 趋势</option>
-                                    <option value="f_motor_o">F电机线产出 趋势</option>
-                                    <option value="s_motor_o">S系列电机线产出 趋势</option>
-                                    <option value="crank_o">曲轴线产出 趋势</option>
-                                </optgroup>
                             </select>
                             <select id="trendSpan" class="btn" style="padding:4px 8px; border-color:var(--border-dark);" onchange="renderTrend()">
                                 <option value="7" data-i18n="opt_7d">近 7 天滚动</option>
@@ -1555,6 +1549,7 @@
             }
         };
         const PRO_ORDER = ['PRO1', 'PRO2', 'PRO3', 'PRO4', 'H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK']; 
+        const NEW_MOTOR_NAMES = { 'H_MOTOR': 'H电机线产出', 'F_MOTOR': 'F电机线产出', 'S_MOTOR': 'S系列电机线产出', 'CRANK': '曲轴线产出' };
         // 按照用户历史指令：加入 IP 与 QA 作为独立部门
         const DEPTS = ['PRO1', 'PRO2', 'PRO3', 'PRO4', 'PE', 'HR', 'R&D', 'PC', 'IP', 'QA'];
         // ================= AI 极速引擎 (Gemini 2.5 Flash-Lite) =================
@@ -2533,14 +2528,10 @@
         }; 
         const getEmptyDay = () => {
             let conf = db.dLinesConfig || { PRO1:[], PRO3:[], PRO4:[] };
-            let day = { 
-                'PRO2': { t: 0, o: 0, h: 0, att: 0, head: 0, lines: { 'LINE A':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE B':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE C':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE D':{t:0,o:0,h:0,shifts:{D:{t:0,o:0}}} } },
-                'H_MOTOR': { t: 0, o: 0, h: 0, att: 0, head: 0 },
-                'F_MOTOR': { t: 0, o: 0, h: 0, att: 0, head: 0 },
-                'S_MOTOR': { t: 0, o: 0, h: 0, att: 0, head: 0 },
-                'CRANK': { t: 0, o: 0, h: 0, att: 0, head: 0 }
-            };
+            let day = { 'PRO2': { t: 0, o: 0, h: 0, att: 0, head: 0, lines: { 'LINE A':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE B':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE C':{t:0,o:0,h:0,shifts:{D:{t:0,o:0},N:{t:0,o:0}}}, 'LINE D':{t:0,o:0,h:0,shifts:{D:{t:0,o:0}}} } } };
             ['PRO1', 'PRO3', 'PRO4'].forEach(ws => { day[ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, dLines: [] }; if (conf[ws]) conf[ws].forEach(l => { day[ws].dLines.push({ id: l.id, name: l.name, t:0, o:0, h:0, att:0, head:0 }); }); });
+            // 新增电机线指标
+            ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(ws => { day[ws] = { t: 0, o: 0, h: 0, att: 0, head: 0 }; });
             return day;
         };
         const getEmptyDM = () => ({ 'PRO1':{am:0,pm:0}, 'PRO2':{am:0,pm:0}, 'PRO3':{am:0,pm:0}, 'PRO4':{am:0,pm:0} });
@@ -2583,7 +2574,7 @@
                         }
                     }
                 });
-                // 确保4个新产出指标有数据结构
+                // 确保新电机线指标存在
                 ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(function(ws) {
                     if(!db.prod[d][ws]) db.prod[d][ws] = {t:0,o:0,h:0,att:0,head:0};
                 });
@@ -2880,14 +2871,6 @@
             triggerAutoSave();
             renderInput(); 
         };
-        // 新产出指标名称映射
-        const NEW_MOTOR_NAMES = {
-            'H_MOTOR': 'H电机线产出',
-            'F_MOTOR': 'F电机线产出',
-            'S_MOTOR': 'S系列电机线产出',
-            'CRANK': '曲轴线产出'
-        };
-        
         function renderInput() {
             let activeId = document.activeElement ? document.activeElement.id : null;
             const date = document.getElementById('globalDate').value; const data = ensureProdData(date); const tbody = document.getElementById('inputTbody'); 
@@ -2941,22 +2924,17 @@
                 }
                 htmlStr += `<tr class="row-spacer"><td colspan="8"></td></tr>`;
             });
-            
-            // 第二部分：新增4个产出指标（简化录入，不分线体）
-            htmlStr += `<tr class="row-spacer" style="height:8px;"><td colspan="8" style="background:linear-gradient(90deg, transparent, rgba(0,163,224,0.1), transparent);"></td></tr>`;
-            htmlStr += `<tr><td colspan="8" style="text-align:left; padding:8px 15px; font-weight:900; color:var(--midea-dark); font-size:13px; background:rgba(240,249,255,0.5);"><i class="fa-solid fa-motor" style="color:var(--midea-blue); margin-right:6px;"></i>独立产线产出指标</td></tr>`;
-            ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(ws => {
-                let wData = data[ws];
-                if (!wData) {
-                    wData = { t: 0, o: 0, h: 0, att: 0, head: 0 };
-                    data[ws] = wData;
-                }
-                let m = calcWsData(date, ws);
-                let displayName = NEW_MOTOR_NAMES[ws] || ws;
-                let lossColor = m.loss < 0 ? 'val-danger' : '';
-                htmlStr += `<tr class="row-parent" style="background:rgba(255,248,240,0.3);"><td style="text-align:left; padding-left:15px; display:flex; align-items:center; height:36px; border-bottom: none;"><span style="font-weight:900; color:var(--midea-dark);">${displayName}</span><span id="ach-${ws}" style="margin-left:6px;font-size:10px;font-weight:800;display:inline-flex;align-items:center;gap:2px;"></span></td><td><input type="number" id="inp_${ws}_t" value="${wData.t || 0}" onchange="updateCell('${ws}', 't', this.value)"></td><td><input type="number" id="inp_${ws}_o" value="${wData.o || 0}" onchange="updateCell('${ws}', 'o', this.value)"></td><td><input type="number" id="inp_${ws}_h" value="${wData.h || 0}" onchange="updateCell('${ws}', 'h', this.value)"></td><td><input type="number" id="inp_${ws}_att" value="${safeNum(wData.att)}" onchange="updateCell('${ws}', 'att', this.value)" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="number" id="inp_${ws}_head" value="${safeNum(wData.head)}" onchange="updateCell('${ws}', 'head', this.value)" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="text" readonly value="${m.upph}" class="${m.upph>=23?'val-success':'val-danger'}"></td><td><input type="text" readonly value="${m.loss===0?t('normal'):m.loss}" class="${lossColor}"></td></tr>`;
+            // 第二部分：新增独立产线产出指标（H电机线、F电机线、S系列电机线、曲轴线）
+            htmlStr += '<tr><td colspan="8" style="text-align:left; padding:12px 15px 8px; font-weight:900; color:var(--midea-blue); background:linear-gradient(90deg, rgba(0,163,224,0.08), transparent); border-radius:4px; font-size:13px;"><i class="fa-solid fa-microchip" style="margin-right:6px;"></i>独立产线产出指标</td></tr>';
+            ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(function(ws) {
+                var wData = data[ws] || { t: 0, o: 0, h: 0, att: 0, head: 0 };
+                var m = calcWsData(date, ws);
+                var displayName = NEW_MOTOR_NAMES[ws] || ws;
+                var lossVal = m.output < m.target ? (m.output - m.target) : 0;
+                var lossColor = lossVal < 0 ? 'val-danger' : '';
+                htmlStr += '<tr class="row-parent"><td style="text-align:left; padding-left:15px; display:flex; align-items:center; height:36px; border-bottom: none;"><i class="fa-solid fa-circle" style="font-size:6px; color:var(--midea-blue); margin-right:8px;"></i><span style="font-weight:900;">'+displayName+'</span><span id="ach-'+ws+'" style="margin-left:6px;font-size:10px;font-weight:800;display:inline-flex;align-items:center;gap:2px;"></span></td><td><input type="number" id="inp_'+ws+'_t" value="'+(wData.t||0)+'" onchange="updateCell(\''+ws+'\', \'t\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_o" value="'+(wData.o||0)+'" onchange="updateCell(\''+ws+'\', \'o\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_h" value="'+(wData.h||0)+'" onchange="updateCell(\''+ws+'\', \'h\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_att" value="'+safeNum(wData.att)+'" onchange="updateCell(\''+ws+'\', \'att\', this.value); syncInputToProdReport()" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="number" id="inp_'+ws+'_head" value="'+safeNum(wData.head)+'" onchange="updateCell(\''+ws+'\', \'head\', this.value); syncInputToProdReport()" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="text" readonly value="'+m.upph+'" class="'+(m.upph>=23?'val-success':'val-danger')+'"></td><td><input type="text" readonly value="'+(lossVal===0?'0':lossVal)+'" class="'+lossColor+'"></td></tr>';
+                htmlStr += '<tr class="row-spacer"><td colspan="8"></td></tr>';
             });
-            
             tbody.innerHTML = htmlStr;
             // 调试：检查表格是否渲染
             console.log('renderInput: 表格渲染完成，行数：', document.querySelectorAll('#inputTbody tr').length);
@@ -2991,7 +2969,7 @@
                 htmlStr += `<li class="rank-item"><div class="rank-num">${i+1}</div><div class="rank-info"><div><span style="color:var(--midea-blue)">产线</span><b>${r.ws}</b></div><div><span>产出 / 工时</span><b>${r.out.toLocaleString()} / ${r.hrs}H</b></div><div><span>差异</span><b class="${r.loss<0?'val-danger':''}">${r.loss===0?'0':r.loss}</b></div><div><span>UPPH</span><b class="${r.upph>=23?'val-success':'val-danger'}" style="font-size:1.1rem !important;">${r.upph.toFixed(2)}</b></div></div></li>`;
             });
             rankUl.innerHTML = htmlStr;
-            // 初始化 WS 可见性（默认显示PRO2）
+            // 初始化 WS 可见性
             if(Object.keys(window.monitorChartWs).length === 0) {
                 PRO_ORDER.forEach(function(ws){ window.monitorChartWs[ws] = false; });
                 window.monitorChartWs['PRO2'] = true;
@@ -3029,44 +3007,8 @@
                 if(visibleCount === 1) {
                     // 单一 WS → 显示该WS下各线体班次达成明细(分组标签)
                     var singleWs = visibleList[0].ws;
-                    // 新增的4个电机线指标（无分线体班次结构）
-                    var isMotorLine = ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].indexOf(singleWs) !== -1;
-                    
-                    if(isMotorLine) {
-                        // 电机线：直接显示目标vs实际
-                        var motorData = visibleList[0];
-                        var motorName = NEW_MOTOR_NAMES[singleWs] || singleWs;
-                        chartMon = new Chart(ctx, { 
-                            type: 'bar',
-                            data: { 
-                                labels: [motorName],
-                                datasets: [
-                                    { label:'目标', data: [motorData.tgt], backgroundColor: 'rgba(203,213,225,0.7)', borderRadius: 6 },
-                                    { label:'实际', data: [motorData.out], backgroundColor: motorData.out >= motorData.tgt ? 'rgba(0,146,216,0.85)' : 'rgba(225,29,72,0.8)', borderRadius: 6 }
-                                ]
-                            }, 
-                            options: {
-                                responsive: true, maintainAspectRatio: false,
-                                animation: { duration: 400, easing: 'easeOutQuart' },
-                                layout: { padding: { top: 22 } },
-                                plugins: {
-                                    legend: { display: true, position: 'top', labels: { font: { size: 11, weight: 'bold' } } },
-                                    datalabels: {
-                                        align: 'top', anchor: 'end', offset: -2,
-                                        color: function(c) { return c.datasetIndex === 1 ? '#0092D8' : '#64748b'; },
-                                        font: { weight: '800', size: 11 },
-                                        formatter: function(v) { return v ? v.toLocaleString() : '0'; }
-                                    }
-                                },
-                                scales: {
-                                    y: { beginAtZero: true, grace: '15%', grid: { color: 'rgba(0,146,216,0.06)' }, ticks: { font: { size: 10, weight: 'bold' } } },
-                                    x: { grid: { display: false }, ticks: { font: { size: 11, weight: 'bold' } } }
-                                }
-                            }
-                        });
-                    } else if(singleWs === 'PRO2') {
-                        // PRO2：从 lines 构建分组数据（优先使用录入的 shift 数据）
-                        var shiftGroups = [];
+                    // 从 PRO2 lines 构建分组数据（优先使用录入的 shift 数据）
+                    var shiftGroups = [];
                     if(db.prod[date] && db.prod[date].PRO2 && db.prod[date].PRO2.lines) {
                         var lines = db.prod[date].PRO2.lines;
                         Object.keys(lines).sort().forEach(function(ln) {
@@ -3164,11 +3106,12 @@
                 }
             }
         }
-        // ================= WS 图表可见性切换（单选模式） =================
+        // ================= WS 图表可见性切换 =================
         window.toggleChartWs = function(ws) {
-            // 单选模式：点击哪个就只显示哪个
-            PRO_ORDER.forEach(function(w){ window.monitorChartWs[w] = false; });
-            window.monitorChartWs[ws] = true;
+            window.monitorChartWs[ws] = !window.monitorChartWs[ws];
+            // 确保至少有一个可见
+            var anyVisible = PRO_ORDER.some(function(w){ return window.monitorChartWs[w]; });
+            if(!anyVisible) window.monitorChartWs[ws] = true;
             renderMonitor();
         };
         // ================= 录入数据联动至 UPPH 达成 =================
@@ -3932,26 +3875,8 @@
         window.renderTrend = function() {
             let span = parseInt(document.getElementById('trendSpan').value); let metric = document.getElementById('trendMetric').value; let selectedDate = document.getElementById('globalDate').value;
             let dates = Object.keys(db.prod).filter(d => d <= selectedDate).sort(); if(dates.length > span) dates = dates.slice(-span); if(dates.length === 0) { if(chartTrnd) chartTrnd.destroy(); return; }
-            
-            // 判断是否为电机线产出趋势
-            var isMotorTrend = ['h_motor_o', 'f_motor_o', 's_motor_o', 'crank_o'].indexOf(metric) !== -1;
-            var motorWsMap = { 'h_motor_o': 'H_MOTOR', 'f_motor_o': 'F_MOTOR', 's_motor_o': 'S_MOTOR', 'crank_o': 'CRANK' };
-            
-            let ds = { 'PRO1':[], 'PRO2':[], 'PRO3':[], 'PRO4':[], 'H_MOTOR':[], 'F_MOTOR':[], 'S_MOTOR':[], 'CRANK':[] };
-            dates.forEach(d => { 
-                PRO_ORDER.forEach(ws => { 
-                    let m = calcWsData(d, ws); 
-                    let val = 0; 
-                    if(metric==='upph') val = m.upph; 
-                    else if(metric==='o') val = m.output; 
-                    else if(metric==='h') val = m.hours; 
-                    else if(metric==='loss') val = m.loss; 
-                    else if(metric==='attRate') val = m.head>0 ? parseFloat((m.att/m.head*100).toFixed(1)) : 0; 
-                    else if(metric==='head') val = m.head;
-                    else if(metric==='h_motor_o' || metric==='f_motor_o' || metric==='s_motor_o' || metric==='crank_o') val = m.output;
-                    ds[ws].push(val === 0 ? null : val); 
-                }); 
-            });
+            let ds = { 'PRO1':[], 'PRO2':[], 'PRO3':[], 'PRO4':[] };
+            dates.forEach(d => { PRO_ORDER.forEach(ws => { let m = calcWsData(d, ws); let val = 0; if(metric==='upph') val = m.upph; else if(metric==='o') val = m.output; else if(metric==='h') val = m.hours; else if(metric==='loss') val = m.loss; else if(metric==='attRate') val = m.head>0 ? parseFloat((m.att/m.head*100).toFixed(1)) : 0; else if(metric==='head') val = m.head; ds[ws].push(val === 0 ? null : val); }); });
             function getTrendLine(dataArray) {
                 let xSum=0, ySum=0, xxSum=0, xySum=0; let count = 0;
                 for (let i = 0; i < dataArray.length; i++) { if (dataArray[i] !== null && dataArray[i] !== undefined) { xSum += i; ySum += dataArray[i]; xxSum += i * i; xySum += i * dataArray[i]; count++; } }
@@ -3962,25 +3887,12 @@
                 const ctx = document.getElementById('chartTrend').getContext('2d'); if(chartTrnd) chartTrnd.destroy();
                 const config = (color) => ({ borderColor: color, backgroundColor: color, borderWidth:3, pointRadius:5, pointBackgroundColor:'white', pointBorderWidth: 2, tension:0.4, spanGaps: true });
                 const trendConfig = (color) => ({ borderColor: color, borderWidth:2, borderDash: [5, 5], pointRadius: 0, fill: false, tension: 0, pointHitRadius: 0 });
-                let datasets;
-                if(isMotorTrend) {
-                    // 电机线产出趋势：只显示单条线
-                    var ws = motorWsMap[metric];
-                    var wsName = NEW_MOTOR_NAMES[ws] || ws;
-                    var color = ws === 'H_MOTOR' ? '#8b5cf6' : (ws === 'F_MOTOR' ? '#06b6d4' : (ws === 'S_MOTOR' ? '#f97316' : '#22c55e'));
-                    datasets = [
-                        { label: wsName, data: ds[ws], ...config(color) },
-                        { label: wsName + '_T', data: getTrendLine(ds[ws]), ...trendConfig(color.replace(')', ', 0.4)').replace('rgb', 'rgba')) }
-                    ];
-                } else {
-                    // 标准PRO1-PRO4趋势
-                    datasets = [
-                        { label:'PRO1', data: ds['PRO1'], ...config('#64748b') }, { label:'PRO1_T', data: getTrendLine(ds['PRO1']), ...trendConfig('rgba(100, 116, 139, 0.4)') },
-                        { label:'PRO2', data: ds['PRO2'], ...config('#00A3E0') }, { label:'PRO2_T', data: getTrendLine(ds['PRO2']), ...trendConfig('rgba(0, 163, 224, 0.4)') },
-                        { label:'PRO3', data: ds['PRO3'], ...config('#f59e0b') }, { label:'PRO3_T', data: getTrendLine(ds['PRO3']), ...trendConfig('rgba(245, 158, 11, 0.4)') },
-                        { label:'PRO4', data: ds['PRO4'], ...config('#e11d48') }, { label:'PRO4_T', data: getTrendLine(ds['PRO4']), ...trendConfig('rgba(225, 29, 72, 0.4)') }
-                    ];
-                }
+                let datasets = [
+                    { label:'PRO1', data: ds['PRO1'], ...config('#64748b') }, { label:'PRO1_T', data: getTrendLine(ds['PRO1']), ...trendConfig('rgba(100, 116, 139, 0.4)') },
+                    { label:'PRO2', data: ds['PRO2'], ...config('#00A3E0') }, { label:'PRO2_T', data: getTrendLine(ds['PRO2']), ...trendConfig('rgba(0, 163, 224, 0.4)') },
+                    { label:'PRO3', data: ds['PRO3'], ...config('#f59e0b') }, { label:'PRO3_T', data: getTrendLine(ds['PRO3']), ...trendConfig('rgba(245, 158, 11, 0.4)') },
+                    { label:'PRO4', data: ds['PRO4'], ...config('#e11d48') }, { label:'PRO4_T', data: getTrendLine(ds['PRO4']), ...trendConfig('rgba(225, 29, 72, 0.4)') }
+                ];
                 chartTrnd = new Chart(ctx, { 
                     type: 'line', data: { labels: dates.map(d=>d.substring(5)), datasets: datasets }, 
                     options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 30, right: 15 } }, interaction: { mode:'index', intersect:false }, plugins:{ legend:{ position:'top', labels:{ boxWidth:12, usePointStyle:true, filter: function(item) { return !item.text.includes('_T'); } }, onClick: function(e, legendItem, legend) { const index = legendItem.datasetIndex; const ci = legend.chart; const isVisible = ci.isDatasetVisible(index); ci.setDatasetVisibility(index, !isVisible); if (ci.data.datasets[index + 1] && ci.data.datasets[index + 1].label.includes('_T')) { ci.setDatasetVisibility(index + 1, !isVisible); } ci.update(); } }, datalabels: { display: function(context) { return context.dataset.data[context.dataIndex] !== null && !context.dataset.label.includes('_T'); }, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 4, borderColor: (c) => c.dataset.borderColor, borderWidth: 1, color: (c) => c.dataset.borderColor, font: { weight: '700', size: 11 }, padding: { top: 2, bottom: 2, left: 4, right: 4 }, offset: 8, align: function(context) { const idx = context.dataIndex; const totalPoints = context.dataset.data.length; const datasets = context.chart.data.datasets.filter(ds => !ds.label.includes('_T')); const dsIdx = datasets.indexOf(context.dataset); if (totalPoints > 20) { return idx % 2 === 0 ? 'top' : 'bottom'; } const positions = ['top', 'top', 'bottom', 'bottom']; return positions[dsIdx % 4]; }, anchor: 'end', formatter: function(value) { if (value === null) return ''; if (metric === 'attRate') return value + '%'; if (metric === 'upph') return parseFloat(value).toFixed(2); if (value >= 1000) return (value / 1000).toFixed(1) + 'k'; return value; } } }, scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(0,163,224,0.05)'}, grace: '20%'}} } 
