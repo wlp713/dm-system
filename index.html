@@ -1473,8 +1473,13 @@
                 const snapshot = await window.firebaseGet(window.firebaseDbRef);
                 if (snapshot.exists()) {
                     const data = snapshot.val();
-                    console.log('[Firebase] 云端读取成功');
-                    return data;
+                    // 只有当数据有效（db 存在且有内容）时才返回
+                    if (data && data.db && Object.keys(data.db).length > 0) {
+                        console.log('[Firebase] 云端读取成功');
+                        return data;
+                    }
+                    console.log('[Firebase] 云端数据为空，跳过');
+                    return null;
                 }
                 return null;
             } catch(e) {
@@ -1488,9 +1493,9 @@
             if (!isFirebaseReady) return;
             window.firebaseOnValue(window.firebaseDbRef, (snapshot) => {
                 const data = snapshot.val();
-                if (data && data.db && data.clientId !== CLIENT_ID) {
+                // 只有当数据有效且来自其他客户端时才合并
+                if (data && data.db && data.clientId !== CLIENT_ID && Object.keys(data.db).length > 0) {
                     console.log('[Firebase] 收到远程更新');
-                    // 合并云端数据
                     mergeCloudData(data.db);
                 }
             });
@@ -1498,18 +1503,18 @@
         
         // 合并云端数据到本地
         function mergeCloudData(cloudDb) {
-            if (!cloudDb) return;
-            // 合并各数据模块
-            if (cloudDb.dLinesConfig) db.dLinesConfig = cloudDb.dLinesConfig;
-            if (cloudDb.problems) db.problems = cloudDb.problems;
-            if (cloudDb.loss) db.loss = cloudDb.loss;
-            if (cloudDb.sysDetail) db.sysDetail = cloudDb.sysDetail;
-            if (cloudDb.kaizen) db.kaizen = cloudDb.kaizen;
-            if (cloudDb.memo !== undefined) db.memo = cloudDb.memo;
-            if (cloudDb.prod) db.prod = cloudDb.prod;
-            if (cloudDb.dm) db.dm = cloudDb.dm;
-            if (cloudDb.sqdip) db.sqdip = cloudDb.sqdip;
-            if (cloudDb.sysOps) db.sysOps = cloudDb.sysOps;
+            if (!cloudDb || typeof cloudDb !== 'object') return;
+            // 只有当云端数据有效（非空）时才合并
+            if (cloudDb.dLinesConfig && Object.keys(cloudDb.dLinesConfig).length > 0) db.dLinesConfig = cloudDb.dLinesConfig;
+            if (cloudDb.problems && Array.isArray(cloudDb.problems) && cloudDb.problems.length > 0) db.problems = cloudDb.problems;
+            if (cloudDb.loss && Array.isArray(cloudDb.loss) && cloudDb.loss.length > 0) db.loss = cloudDb.loss;
+            if (cloudDb.sysDetail && Object.keys(cloudDb.sysDetail).length > 0) db.sysDetail = cloudDb.sysDetail;
+            if (cloudDb.kaizen && Array.isArray(cloudDb.kaizen) && cloudDb.kaizen.length > 0) db.kaizen = cloudDb.kaizen;
+            if (cloudDb.memo !== undefined && cloudDb.memo !== null) db.memo = cloudDb.memo;
+            if (cloudDb.prod && Object.keys(cloudDb.prod).length > 0) db.prod = cloudDb.prod;
+            if (cloudDb.dm && Object.keys(cloudDb.dm).length > 0) db.dm = cloudDb.dm;
+            if (cloudDb.sqdip && Object.keys(cloudDb.sqdip).length > 0) db.sqdip = cloudDb.sqdip;
+            if (cloudDb.sysOps && Object.keys(cloudDb.sysOps).length > 0) db.sysOps = cloudDb.sysOps;
             // 保存到本地并刷新
             try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){}
             if (isAppReady) refreshAllViews();
@@ -4973,6 +4978,11 @@
         }
         // ================= 3. 看板与记分卡渲染 =================
         function renderScorecard() {
+            // 防御性检查：确保数据存在
+            if (!currentMonth || !db[currentMonth] || !db[currentMonth][currentWs]) {
+                console.warn('[renderScorecard] 数据未初始化');
+                return;
+            }
             let days = getDaysInMonth(currentMonth);
             let wsData = db[currentMonth][currentWs];
             let totalDays = 0, totalOks = 0;
@@ -5006,6 +5016,11 @@
             document.getElementById('sqdip-adv-high-risk-list').innerHTML = risksHtml || '<div style="font-size:11px; color:var(--success); font-weight:700; padding:8px; background:rgba(16,185,129,0.1); border-radius:6px;"><i class="fa-solid fa-check-circle"></i> 当前车间无高危倾向</div>';
         }
         function renderMacroBoard() {
+            // 防御性检查
+            if (!currentMonth || !db[currentMonth] || !db[currentMonth][currentWs]) {
+                console.warn('[renderMacroBoard] 数据未初始化');
+                return;
+            }
             Object.keys(LETTER_SHAPES).forEach(letter => {
                 const grid = document.getElementById(`sqdip-adv-grid-${letter}`);
                 const activeIndices = LETTER_SHAPES[letter].sort((a,b) => a-b);
@@ -5270,14 +5285,17 @@
             document.getElementById('sqdip-adv-month-selector').value = '2026-04'; 
             // 先从 localStorage 加载
             let saved = localStorage.getItem(DB_KEY);
-            if(saved) db = JSON.parse(saved);
+            if(saved) { 
+                try { db = JSON.parse(saved); } catch(e) { console.error('localStorage parse error:', e); }
+            }
             // 如果 Firebase 已就绪，从云端加载
             if (isFirebaseReadySQDIP && window.firebaseDatabase) {
                 try {
                     const sqdipRef = window.firebaseRef(window.firebaseDatabase, 'sqdip_board');
                     const snapshot = await window.firebaseGet(sqdipRef);
                     const data = snapshot.val();
-                    if(data && data.db) {
+                    // 只有当云端数据有效（有月份键）时才覆盖本地
+                    if(data && data.db && Object.keys(data.db).length > 0) {
                         db = data.db;
                         try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){}
                     }
@@ -5286,6 +5304,8 @@
                 }
             }
             updateCloudStatus();
+            // 确保 currentMonth 有值
+            currentMonth = document.getElementById('sqdip-adv-month-selector').value || '2026-04';
             changeMonth(); 
         }
         api.changeWs = changeWs;
