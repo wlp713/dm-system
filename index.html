@@ -4,7 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>日常管理V4 重制版 | 美的·清朗蓝</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Firebase SDK (模块化 CDN) -->
+    <script type="module">
+        // ================= Firebase 初始化 =================
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+        import { getDatabase, ref, set, push, onValue, get, remove } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyBrl-gHO48HnyM4e8nkl2vqR7mz4f5mv_E",
+            authDomain: "dm111-e8a7d.firebaseapp.com",
+            projectId: "dm111-e8a7d",
+            storageBucket: "dm111-e8a7d.firebasestorage.app",
+            messagingSenderId: "262083858435",
+            appId: "1:262083858435:web:d51fb541eded52261fbe36",
+            measurementId: "G-1NVJLWJMVP",
+            databaseURL: "https://dm111-e8a7d-default-rtdb.asia-southeast1.firebasedatabase.app"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+        const dbRef = ref(database, 'dm_system');
+        
+        // 暴露到全局
+        window.firebaseApp = app;
+        window.firebaseDatabase = database;
+        window.firebaseDbRef = dbRef;
+        window.firebaseSet = set;
+        window.firebasePush = push;
+        window.firebaseOnValue = onValue;
+        window.firebaseGet = get;
+        window.firebaseRef = ref;
+        
+        console.log('[Firebase] 初始化成功');
+        
+        // 触发初始化完成事件
+        window.dispatchEvent(new CustomEvent('firebaseReady'));
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1403,21 +1438,108 @@
         let localSaveTimeout = null; 
         let cloudSaveTimeout = null; 
         let isCloudActive = false;
-        let supabaseClient = null;
+        let isFirebaseReady = false;
         let realtimeChannel = null;
         let localLastSaveTime = 0;
+        
+        // ================= Firebase 核心函数 =================
+        // 保存数据到 Firebase
+        async function saveToFirebase() {
+            if (!isFirebaseReady) {
+                console.warn('[Firebase] 未就绪，跳过云端保存');
+                return false;
+            }
+            try {
+                await window.firebaseSet(window.firebaseDbRef, {
+                    db: db,
+                    clientId: CLIENT_ID,
+                    updatedAt: Date.now()
+                });
+                console.log('[Firebase] 云端保存成功');
+                return true;
+            } catch(e) {
+                console.error('[Firebase] 云端保存失败:', e);
+                return false;
+            }
+        }
+        
+        // 从 Firebase 读取数据
+        async function loadFromFirebase() {
+            if (!isFirebaseReady) {
+                console.warn('[Firebase] 未就绪，跳过云端读取');
+                return null;
+            }
+            try {
+                const snapshot = await window.firebaseGet(window.firebaseDbRef);
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    console.log('[Firebase] 云端读取成功');
+                    return data;
+                }
+                return null;
+            } catch(e) {
+                console.error('[Firebase] 云端读取失败:', e);
+                return null;
+            }
+        }
+        
+        // 监听 Firebase 实时变化
+        function listenFirebaseRealtime() {
+            if (!isFirebaseReady) return;
+            window.firebaseOnValue(window.firebaseDbRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data && data.db && data.clientId !== CLIENT_ID) {
+                    console.log('[Firebase] 收到远程更新');
+                    // 合并云端数据
+                    mergeCloudData(data.db);
+                }
+            });
+        }
+        
+        // 合并云端数据到本地
+        function mergeCloudData(cloudDb) {
+            if (!cloudDb) return;
+            // 合并各数据模块
+            if (cloudDb.dLinesConfig) db.dLinesConfig = cloudDb.dLinesConfig;
+            if (cloudDb.problems) db.problems = cloudDb.problems;
+            if (cloudDb.loss) db.loss = cloudDb.loss;
+            if (cloudDb.sysDetail) db.sysDetail = cloudDb.sysDetail;
+            if (cloudDb.kaizen) db.kaizen = cloudDb.kaizen;
+            if (cloudDb.memo !== undefined) db.memo = cloudDb.memo;
+            if (cloudDb.prod) db.prod = cloudDb.prod;
+            if (cloudDb.dm) db.dm = cloudDb.dm;
+            if (cloudDb.sqdip) db.sqdip = cloudDb.sqdip;
+            if (cloudDb.sysOps) db.sysOps = cloudDb.sysOps;
+            // 保存到本地并刷新
+            try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){}
+            if (isAppReady) refreshAllViews();
+        }
+        
+        // Firebase 就绪事件监听
+        window.addEventListener('firebaseReady', function() {
+            isFirebaseReady = true;
+            isCloudActive = true;
+            console.log('[Firebase] 就绪事件触发');
+            // 开始实时监听
+            listenFirebaseRealtime();
+            // 更新云端状态显示
+            updateCloudStatus();
+        });
+        
         // ★ 全局triggerAutoSave：脚本块1需要在全局作用域定义此函数
         window.triggerAutoSave = function() {
-            try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){}
+            // 1. 立即保存到 localStorage
+            try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){ console.error('localStorage 保存失败:', e); }
+            
+            // 2. 更新保存指示器
             var _si = document.getElementById('save-indicator-text');
             if(_si) _si.innerText = '已保存 at ' + new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-            // 云端同步（2s防抖，仅序列化一次db，配合beforeunload确保关闭时写全）
-            if (isCloudActive && supabaseClient) {
+            
+            // 3. 云端同步（2s防抖）
+            if (isFirebaseReady) {
                 clearTimeout(cloudSaveTimeout);
-                cloudSaveTimeout = setTimeout(async function(){
-                    try {
-                        await supabaseClient.from('mbs_v2_cloud').upsert({ id: 'sqdip_global_pro', content: { db: db, clientId: CLIENT_ID } });
-                    } catch(e) { console.error('Cloud sync failed:', e); }
+                cloudSaveTimeout = setTimeout(function() {
+                    saveToFirebase();
                 }, 2000);
             }
         };
@@ -2102,10 +2224,7 @@
             // 关闭前确保数据完整并立即保存
             repairData();
             triggerAutoSave();
-            // 强制云端同步（不等待防抖）
-            if (isCloudActive && supabaseClient) {
-                supabaseClient.from('mbs_v2_cloud').upsert({ id: 'sqdip_global_pro', content: { db: db, clientId: CLIENT_ID } }).catch(e => console.error('Cloud sync failed:', e));
-            }
+            // Firebase 云端同步已集成到 triggerAutoSave
             document.getElementById('sys-detail-panel').style.display = 'none'; 
         };
         function sysDetailRows() {
@@ -2127,10 +2246,6 @@
             row[field] = ['plan','actual','responseMin','waitMin','impactQty'].includes(field) ? safeNum(value) : value;
             // 立即保存并同步
             triggerAutoSave();
-            // 强制立即云端同步（关键数据）
-            if (isCloudActive && supabaseClient) {
-                supabaseClient.from('mbs_v2_cloud').upsert({ id: 'sqdip_global_pro', content: { db: db, clientId: CLIENT_ID } }).catch(e => console.error('Cloud sync failed:', e));
-            }
             renderSysDetail(); renderSysOps();
         };
         window.delSysRecord = function(id) {
@@ -2386,83 +2501,25 @@
                 console.warn('Particles disabled:', e);
             }
         }
-        function ensureSupabaseFallback() {
-            if (typeof window.supabase !== 'undefined' && window.supabase?.createClient) return;
-            window.supabase = {
-                createClient(projectUrl, apiKey) {
-                    const restBase = projectUrl.replace(/\/$/, '') + '/rest/v1/';
-                    const headers = {
-                        apikey: apiKey,
-                        Authorization: `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    };
-                    const request = async (method, table, params = {}, body = null, extraHeaders = {}) => {
-                        const qs = new URLSearchParams(params);
-                        const res = await fetch(restBase + table + (qs.toString() ? `?${qs}` : ''), {
-                            method,
-                            headers: { ...headers, ...extraHeaders },
-                            body: body ? JSON.stringify(body) : undefined
-                        });
-                        const text = await res.text();
-                        const data = text ? JSON.parse(text) : null;
-                        if (!res.ok) throw new Error(data?.message || `Supabase REST ${res.status}`);
-                        return { data, error: null };
-                    };
-                    return {
-                        from(table) {
-                            return {
-                                select(columns = '*') {
-                                    const params = { select: columns };
-                                    const builder = {
-                                        eq(column, value) { params[column] = `eq.${value}`; return builder; },
-                                        async single() {
-                                            const result = await request('GET', table, params, null, { Accept: 'application/vnd.pgrst.object+json' });
-                                            return result;
-                                        },
-                                        then(resolve, reject) { return request('GET', table, params).then(resolve, reject); }
-                                    };
-                                    return builder;
-                                },
-                                upsert(payload) {
-                                    return request('POST', table, {}, payload, { Prefer: 'resolution=merge-duplicates,return=representation' });
-                                }
-                            };
-                        },
-                        channel() {
-                            return { on() { return this; }, subscribe() { return this; } };
-                        }
-                    };
-                }
-            };
-        }
-        ensureSupabaseFallback();
-        try { if (typeof supabase !== 'undefined') { supabaseClient = supabase.createClient("https://tvbxrsrezabmksqzvikd.supabase.co", "sb_publishable_opZ3LiOo1jaqakCF6FQBBA_kronAQEx"); isCloudActive = true; } } catch (e) {}
         function updateCloudStatus() {
             const badge = document.getElementById('cloud-status-badge');
-            if (isCloudActive) { badge.innerHTML = `<i class="fa-solid fa-cloud"></i> <span data-i18n="status_online">${t('status_online')}</span>`; badge.style.color = 'var(--midea-blue)'; } 
-            else { badge.innerHTML = `<i class="fa-solid fa-hard-drive"></i> <span data-i18n="status_offline">${t('status_offline')}</span>`; badge.style.color = 'var(--text-muted)'; }
+            if (isFirebaseReady) { 
+                badge.innerHTML = `<i class="fa-solid fa-cloud"></i> <span data-i18n="status_online">${t('status_online')}</span>`; 
+                badge.style.color = 'var(--midea-blue)'; 
+            } else { 
+                badge.innerHTML = `<i class="fa-solid fa-hard-drive"></i> <span data-i18n="status_offline">${t('status_offline')}</span>`; 
+                badge.style.color = 'var(--text-muted)'; 
+            }
         }
-        function setupRealtimeListener() {
-            if (!isCloudActive || !supabaseClient || realtimeChannel) return;
-            realtimeChannel = supabaseClient.channel('mbs-global').on('postgres_changes', { event: '*', schema: 'public' }, payload => { if (payload.new && payload.new.content && payload.new.content.clientId !== CLIENT_ID) silentFetchCloudRealtime(); }).subscribe();
-        }
-        window.forceSyncCloud = async function() { showToast('fa-solid fa-spinner fa-spin', '同步云端...'); try { await silentSaveToLocalAndCloud(); showToast('fa-solid fa-check', '同步成功'); } catch(e) { showToast('fa-solid fa-xmark', '存至本地', 'error'); } };
-        async function silentFetchCloudRealtime() {
-            try {
-                const date = document.getElementById('globalDate').value; const { data: storeData } = await supabaseClient.from('mbs_v2_cloud').select('*');
-                if (storeData) {
-                    storeData.forEach(row => {
-                        if (row.id === 'sqdip_global_pro' && row.content && row.content.db) { 
-                            const cloudDb = row.content.db; 
-                            if(cloudDb.dLinesConfig) db.dLinesConfig = cloudDb.dLinesConfig; 
-                            if(cloudDb.problems) db.problems = cloudDb.problems; 
-                            if(cloudDb.loss) db.loss = cloudDb.loss; 
-                            if(cloudDb.sysDetail) db.sysDetail = cloudDb.sysDetail; 
-                            if(cloudDb.kaizen) db.kaizen = cloudDb.kaizen; 
-                            if(cloudDb.memo !== undefined) db.memo = cloudDb.memo; 
-                        } 
-                        else if(/^\d{4}-\d{2}-\d{2}$/.test(row.id) && row.content?.prod && row.content?.dm) { 
-                            db.prod[row.id] = row.content.prod; 
+        window.forceSyncCloud = async function() { 
+            showToast('fa-solid fa-spinner fa-spin', '同步云端...'); 
+            try { 
+                if (isFirebaseReady) await saveToFirebase();
+                showToast('fa-solid fa-check', '同步成功'); 
+            } catch(e) { 
+                showToast('fa-solid fa-xmark', '同步失败', 'error'); 
+            } 
+        }; 
                             db.dm[row.id] = row.content.dm; 
                             if(row.content.sqdip) db.sqdip[row.id] = row.content.sqdip; 
                             if(row.content.sysOps) db.sysOps[row.id] = row.content.sysOps; 
@@ -2532,32 +2589,26 @@
             document.getElementById('loss-ai-start').value = past7DateStr; document.getElementById('loss-ai-end').value = localDate;
             const deptFilter1 = document.getElementById('f-dept'); const deptFilter2 = document.getElementById('fl-dept'); 
             DEPTS.forEach(d => { let opt1 = document.createElement('option'); opt1.value = d; opt1.innerText = d; deptFilter1.appendChild(opt1); let opt2 = document.createElement('option'); opt2.value = d; opt2.innerText = d; deptFilter2.appendChild(opt2); });
-            try {
-                if (isCloudActive && supabaseClient) {
-                    const { data: storeData } = await supabaseClient.from('mbs_v2_cloud').select('*');
-                    if (storeData && storeData.length > 0) { 
-                        storeData.forEach(row => { 
-                            if(row.id==='sqdip_global_pro' && row.content && row.content.db) { 
-                                const cloudDb = row.content.db; 
-                                if(cloudDb.dLinesConfig) db.dLinesConfig = cloudDb.dLinesConfig; 
-                                if(cloudDb.problems) db.problems = cloudDb.problems; 
-                                if(cloudDb.loss) db.loss = cloudDb.loss; 
-                                if(cloudDb.sysDetail) db.sysDetail = cloudDb.sysDetail; 
-                                if(cloudDb.kaizen) db.kaizen = cloudDb.kaizen; 
-                                if(cloudDb.memo !== undefined) db.memo = cloudDb.memo; 
-                            } 
-                            else if(/^\d{4}-\d{2}-\d{2}$/.test(row.id) && row.content?.prod && row.content?.dm) { 
-                                db.prod[row.id] = row.content.prod; 
-                                db.dm[row.id] = row.content.dm; 
-                                if(row.content.sqdip) db.sqdip[row.id] = row.content.sqdip; 
-                                if(row.content.sysOps) db.sysOps[row.id] = row.content.sysOps; 
-                                if(row.id === localDate) db.memo = row.content.memo || ''; 
-                            }
-                        }); 
-                    } else injectSafeDemo();
-                    setupRealtimeListener();
-                } else { let saved = localStorage.getItem(DB_KEY); if(saved) { db = JSON.parse(saved); if(!db.prod) injectSafeDemo(); } else injectSafeDemo(); }
-            } catch(e) { isCloudActive=false; let saved = localStorage.getItem(DB_KEY); if(saved) db = JSON.parse(saved); else injectSafeDemo(); }
+            
+            // 先从 localStorage 加载
+            let saved = localStorage.getItem(DB_KEY);
+            if(saved) { 
+                try { db = JSON.parse(saved); } catch(e) { console.error('localStorage 解析失败:', e); }
+            }
+            if(!db.prod) injectSafeDemo();
+            
+            // 尝试从 Firebase 加载（如果已就绪）
+            if (isFirebaseReady) {
+                try {
+                    const cloudData = await loadFromFirebase();
+                    if (cloudData && cloudData.db) {
+                        console.log('[Firebase] 合并云端数据');
+                        mergeCloudData(cloudData.db);
+                    }
+                } catch(e) {
+                    console.error('[Firebase] 加载失败:', e);
+                }
+            }
             repairData(); ensureProdData(localDate); ensureDMData(localDate); ensureSysData(localDate); document.getElementById('memoText').value = translateUserText(db.memo); 
             // 同步目标月份到看板内嵌面板
             var mtm = document.getElementById('monitorTargetMonth');
@@ -2656,28 +2707,25 @@
         // ★ 页面关闭前强制保存到本地和云端
         window.addEventListener('beforeunload', function(){
             try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){}
-            // ★ 同步发送云端请求（使用同步 XMLHttpRequest 确保关闭前完成）
-            if (isCloudActive && supabaseClient) {
+            // Firebase 同步保存（使用 Navigator.sendBeacon 确保关闭前完成）
+            if (isFirebaseReady) {
                 try {
-                    var xhr = new XMLHttpRequest();
-                    xhr.open('POST', 'https://tvbxrsrezabmksqzvikd.supabase.co/rest/v1/mbs_v2_cloud?on_conflict=id', false); // sync
-                    xhr.setRequestHeader('Content-Type', 'application/json');
-                    xhr.setRequestHeader('apikey', 'sb_publishable_opZ3LiOo1jaqakCF6FQBBA_kronAQEx');
-                    xhr.setRequestHeader('Authorization', 'Bearer sb_publishable_opZ3LiOo1jaqakCF6FQBBA_kronAQEx');
-                    xhr.setRequestHeader('Prefer', 'resolution=merge-duplicates');
-                    xhr.send(JSON.stringify({ id: 'sqdip_global_pro', content: { db: db, clientId: CLIENT_ID } }));
+                    const data = JSON.stringify({ db: db, clientId: CLIENT_ID, updatedAt: Date.now() });
+                    // Firebase REST API 方式（使用 sendBeacon 确保发送）
+                    const url = 'https://dm111-e8a7d-default-rtdb.asia-southeast1.firebasedatabase.app/dm_system.json?auth=AIzaSyBrl-gHO48HnyM4e8nkl2vqR7mz4f5mv_E';
+                    navigator.sendBeacon(url, data);
                 } catch(e) { console.error('beforeunload sync failed:', e); }
             }
         });
         // ★ 强制保存按钮功能
         window.forceSaveAll = async function() {
             try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){}
-            if (isCloudActive && supabaseClient) {
-                try {
-                    await supabaseClient.from('mbs_v2_cloud').upsert({ id: 'sqdip_global_pro', content: { db: db, clientId: CLIENT_ID } });
+            if (isFirebaseReady) {
+                const success = await saveToFirebase();
+                if (success) {
                     showToast('fa-solid fa-check', '已保存到云端 ✓');
                     return;
-                } catch(e) { console.error('Cloud sync failed:', e); }
+                }
             }
             showToast('fa-solid fa-check', '已保存到本地 ✓');
         };
@@ -4045,8 +4093,8 @@
         window.forceSaveAndSync = async function() {
             try {
                 localStorage.setItem(DB_KEY, JSON.stringify(db));
-                if (isCloudActive && supabaseClient) {
-                    await supabaseClient.from('mbs_v2_cloud').upsert({ id: 'sqdip_global_pro', content: { db: db, clientId: CLIENT_ID } });
+                if (isFirebaseReady) {
+                    await saveToFirebase();
                     console.log('Cloud sync completed');
                 }
             } catch(e) {
@@ -4065,9 +4113,6 @@
         window.closeSettings = function() {
             repairData();
             triggerAutoSave();
-            if (isCloudActive && supabaseClient) {
-                supabaseClient.from('mbs_v2_cloud').upsert({ id: 'sqdip_global_pro', content: { db: db, clientId: CLIENT_ID } }).catch(e => console.error('Cloud sync failed:', e));
-            }
             document.getElementById('settings-panel').style.display = 'none';
         };
         window.setTheme = function(theme) {
@@ -4774,9 +4819,8 @@
         const CLIENT_ID = window.CLIENT_ID;
         // ★ SQDIP 看板使用独立的云端记录ID，不与主脚本冲突
         const CLOUD_RECORD_ID = 'sqdip_adv_board_pro'; 
-        let supabaseClient = null;
         let realtimeChannel = null;
-        let isCloudActive = false;
+        let isFirebaseReadySQDIP = false;
         let localSaveTimeout = null;
         let cloudSaveTimeout = null;
         let db = {}; 
@@ -4785,15 +4829,16 @@
         let currentMetric = 'S';
         let chartObj = null;
         let macroChartObj = null;
-        try {
-            if (typeof supabase !== 'undefined') {
-                supabaseClient = supabase.createClient("https://tvbxrsrezabmksqzvikd.supabase.co", "sb_publishable_opZ3LiOo1jaqakCF6FQBBA_kronAQEx");
-                isCloudActive = true;
-            }
-        } catch (e) {}
+        
+        // 监听 Firebase 就绪事件
+        window.addEventListener('firebaseReady', function() {
+            isFirebaseReadySQDIP = true;
+            updateCloudStatus();
+        });
+        
         function updateCloudStatus() {
             const badge = document.getElementById('sqdip-adv-cloud-status');
-            if (isCloudActive) {
+            if (isFirebaseReadySQDIP) {
                 badge.innerHTML = `<i class="fa-solid fa-cloud" style="color:var(--success);"></i> 云端实时协同中`;
                 badge.style.color = 'var(--success)';
             } else {
@@ -4801,14 +4846,7 @@
                 badge.style.color = 'var(--text-muted)';
             }
         }
-        function setupRealtimeListener() {
-            if (!isCloudActive || !supabaseClient || realtimeChannel) return;
-            realtimeChannel = supabaseClient.channel('mbs-sqdip-global').on('postgres_changes', { event: '*', schema: 'public', table: 'mbs_v2_cloud' }, payload => { 
-                if (payload.new && payload.new.id === CLOUD_RECORD_ID && payload.new.content && payload.new.content.clientId !== CLIENT_ID) {
-                    silentFetchCloudRealtime(); 
-                }
-            }).subscribe();
-        }
+        
         // ★ 重命名为 triggerAutoSaveSQDIP，防止覆盖主脚本块的 triggerAutoSave
         async function triggerAutoSaveSQDIP() {
             // ★ 立即写入 localStorage（页面刷新也丢不了数据）
@@ -4821,22 +4859,26 @@
             localSaveTimeout = setTimeout(function(){
                 try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){}
             }, 500);
-            // 云端同步（只存 db 全量的一条记录）
-            if (isCloudActive && supabaseClient) {
+            // Firebase 云端同步
+            if (isFirebaseReadySQDIP && window.firebaseDatabase) {
                 clearTimeout(cloudSaveTimeout);
                 cloudSaveTimeout = setTimeout(async function(){
                     try {
-                        await supabaseClient.from('mbs_v2_cloud').upsert({ id: CLOUD_RECORD_ID, content: { db: db, clientId: CLIENT_ID } });
-                    } catch(e) { console.error('Cloud sync failed:', e); }
+                        const sqdipRef = window.firebaseRef(window.firebaseDatabase, 'sqdip_board');
+                        await window.firebaseSet(sqdipRef, { db: db, clientId: CLIENT_ID, updatedAt: Date.now() });
+                    } catch(e) { console.error('Firebase sync failed:', e); }
                 }, 2000);
             }
         }
         async function silentFetchCloudRealtime() {
             try {
-                const { data } = await supabaseClient.from('mbs_v2_cloud').select('content').eq('id', CLOUD_RECORD_ID).single();
-                if(data && data.content && data.content.db) {
+                if (!isFirebaseReadySQDIP || !window.firebaseDatabase) return;
+                const sqdipRef = window.firebaseRef(window.firebaseDatabase, 'sqdip_board');
+                const snapshot = await window.firebaseGet(sqdipRef);
+                const data = snapshot.val();
+                if(data && data.db) {
                     // ★ 关键修复：合并云端数据，不要直接替换 db 引用
-                    var cloudData = data.content.db;
+                    var cloudData = data.db;
                     // 合并 prod 数据（只合并不同日期的数据，保留本地已有数据的差异）
                     Object.keys(cloudData.prod||{}).forEach(function(d) {
                         if(!db.prod[d]) db.prod[d] = cloudData.prod[d];
@@ -5237,20 +5279,22 @@
         async function init() {
             let today = new Date();
             document.getElementById('sqdip-adv-month-selector').value = '2026-04'; 
-            if (isCloudActive && supabaseClient) {
+            // 先从 localStorage 加载
+            let saved = localStorage.getItem(DB_KEY);
+            if(saved) db = JSON.parse(saved);
+            // 如果 Firebase 已就绪，从云端加载
+            if (isFirebaseReadySQDIP && window.firebaseDatabase) {
                 try {
-                    const { data } = await supabaseClient.from('mbs_v2_cloud').select('content').eq('id', CLOUD_RECORD_ID).single();
-                    if(data && data.content && data.content.db) {
-                        db = data.content.db;
+                    const sqdipRef = window.firebaseRef(window.firebaseDatabase, 'sqdip_board');
+                    const snapshot = await window.firebaseGet(sqdipRef);
+                    const data = snapshot.val();
+                    if(data && data.db) {
+                        db = data.db;
+                        try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){}
                     }
-                    setupRealtimeListener();
                 } catch(e) {
-                    let saved = localStorage.getItem(DB_KEY);
-                    if(saved) db = JSON.parse(saved);
+                    console.error('Firebase load failed:', e);
                 }
-            } else {
-                let saved = localStorage.getItem(DB_KEY);
-                if(saved) db = JSON.parse(saved);
             }
             updateCloudStatus();
             changeMonth(); 
