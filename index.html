@@ -863,7 +863,7 @@
                         <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">数据自动关联各模块，反映运作纪律真实水平</span>
                     </div>
                     <div class="sys-grid">
-                        <div class="sys-box" onclick="openSysDetail('pre')">
+                        <div class="sys-box" onclick="window.openSysDetail('pre')">
                             <h4><i class="fa-solid fa-hourglass-start" style="color:var(--midea-blue);"></i> 事前 — 开班准备确认</h4>
                             <div class="sys-compact-strip">
                                 <div class="sys-chip"><span class="sys-chip-label">人·出勤到位</span><b id="sys-pre-man">--</b></div>
@@ -881,7 +881,7 @@
                                 <span><i class="fa-solid fa-list-check"></i> 今日检查项 <b id="sys-pre-count">0</b></span>
                             </div>
                         </div>
-                        <div class="sys-box" onclick="openSysDetail('mid')">
+                        <div class="sys-box" onclick="window.openSysDetail('mid')">
                             <h4><i class="fa-solid fa-gauge-high" style="color:var(--warning);"></i> 事中 — 过程响应与纪律</h4>
                             <div class="sys-compact-strip">
                                 <div class="sys-chip"><span class="sys-chip-label">平均响应</span><b id="sys-mid-andon">--分</b></div>
@@ -899,7 +899,7 @@
                                 <span><i class="fa-solid fa-clock"></i> 事件 <b id="sys-mid-count">0</b></span>
                             </div>
                         </div>
-                        <div class="sys-box" onclick="openSysDetail('post')">
+                        <div class="sys-box" onclick="window.openSysDetail('post')">
                             <h4><i class="fa-solid fa-flag-checkered" style="color:var(--success);"></i> 事后 — 闭环与复盘效能</h4>
                             <div class="sys-compact-strip">
                                 <div class="sys-chip"><span class="sys-chip-label">PSP闭环率</span><b id="sys-post-close">--</b></div>
@@ -2530,42 +2530,55 @@
             let lineRanking = Object.entries(lineSummary)
                 .sort((a, b) => b[1].qty - a[1].qty);
             
-            const prompt = `你是美的泰国冰箱压缩机工厂的精益专家和数据分析师。请基于以下LOSS数据进行严谨的智能总结，输出必须基于事实数据，不得编造信息。
+            const prompt = `你是美的泰国冰箱压缩机工厂的精益专家和数据分析师。请基于以下LOSS数据进行严谨的智能总结分析，输出必须严格基于事实数据，不得编造、推测或添加未提供的信息。
 
 【数据概览】
 - 统计周期：${start} 至 ${end}
 - 总LOSS数量：${totalLoss} 套
 - 记录总数：${losses.length} 条
-- 平均每日损失：${(totalLoss / losses.length).toFixed(1)} 套/条
+- 平均每次损失：${(totalLoss / losses.length).toFixed(1)} 套/条
 
-【TOP10影响数量的具体问题】
+【TOP10影响数量的具体问题（按损失数量排序）】
 ${top10Issues.map((issue, i) => `${i+1}. ${issue.desc} (损失: ${issue.qty}套, 线体: ${issue.line}, 班次: ${issue.shift}, 责任部门: ${issue.dept}, 日期: ${issue.date})`).join('\n')}
 
-【TOP3影响最大的问题类型（按损失数量）】
+【TOP3影响最大的问题类型（按总损失数量）】
 ${top3LossTypes.map(([type, data], i) => `${i+1}. ${type} (总损失: ${data.qty}套, 发生次数: ${data.count}次, 平均每次: ${(data.qty / data.count).toFixed(1)}套)`).join('\n')}
 
 【TOP3最频繁的问题类型（按发生次数）】
-${top3FrequentTypes.map(([type, data], i) => `${i+1}. ${type} (发生次数: ${data.count}次, 总损失: ${data.qty}套)`).join('\n')}
+${top3FrequentTypes.map(([type, data], i) => `${i+1}. ${type} (发生次数: ${data.count}次, 总损失: ${data.qty}套, 平均每次: ${(data.qty / data.count).toFixed(1)}套)`).join('\n')}
 
-【部门责任分析】
-${deptRanking.map(([dept, data], i) => `${i+1}. ${dept} (${data.qty}套, ${data.count}次)`).join('\n')}
+【部门责任分析（按损失数量排序）】
+${deptRanking.map(([dept, data], i) => `${i+1}. ${dept} (总损失: ${data.qty}套, 发生次数: ${data.count}次)`).join('\n')}
 
-【线体影响分析】
-${lineRanking.map(([line, data], i) => `${i+1}. ${line} (${data.qty}套, ${data.count}次)`).join('\n')}
+【线体影响分析（按损失数量排序）】
+${lineRanking.map(([line, data], i) => `${i+1}. ${line} (总损失: ${data.qty}套, 发生次数: ${data.count}次)`).join('\n')}
 
-【精益分析要求】
-1. 基于压缩机生产特点分析：考虑压缩机装配精度、零部件质量、自动化设备稳定性、密封性测试、焊接工艺、检漏测试等关键环节
-2. 结合精益生产理念：使用5Why分析法识别根本原因，区分系统性问题、重复性问题、偶发异常
-3. 给出具体改善建议：包括技术改进、流程优化、人员培训、设备维护、质量控制等方面
-4. 优先解决对产出影响最大的问题类型
+【精益分析框架要求】
+1. 压缩机生产特点分析：必须基于压缩机装配精度、零部件质量、自动化设备稳定性、密封性测试、焊接工艺、检漏测试等实际生产环节
+2. 根本原因分析：使用5Why分析法，区分系统性问题（流程/制度）、重复性问题（设备/人员）、偶发异常（物料/环境）
+3. 改善建议优先级：基于损失数量和发生频率，优先解决对产出影响最大的问题
+4. 可行性评估：考虑泰国工厂实际情况，包括中泰员工协作、本地供应链、设备维护水平、质量控制标准
 
 【输出格式要求】
 1. 使用HTML格式，包含标题、列表、表格
-2. 重点数据加粗显示
-3. 每个建议都要有明确的实施路径、责任部门、预计完成时间
-4. 结合冰箱压缩机的生产工艺特点
-5. 考虑泰国工厂的具体情况：中泰员工协作、本地供应链、设备维护水平、质量控制标准
-6. 语言：${currentLang}`;
+2. 重点数据加粗显示，使用<strong>标签
+3. 每个改善建议必须包含：
+   - 具体实施措施（技术改进、流程优化、人员培训、设备维护、质量控制）
+   - 责任部门（PE/QA/ME/生产/物料）
+   - 预计完成时间（短期1周内/中期1个月内/长期3个月内）
+4. 结合冰箱压缩机生产工艺特点（如：转子动平衡、定子绕线、焊接密封、检漏测试等）
+5. 考虑泰国工厂具体情况：
+   - 中泰员工语言沟通与培训
+   - 本地供应链响应时间
+   - 设备维护保养周期
+   - 质量控制标准执行
+6. 语言：${currentLang}
+
+【严禁事项】
+- 不得编造未提供的数据
+- 不得推测未明确的问题原因
+- 不得添加未经证实的改善建议
+- 必须严格基于上述数据进行分析`;
             
             try {
                 let ans = await callAI_API(prompt);
@@ -4024,15 +4037,28 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (${data.qty}套, ${data.
         };
         function renderDM() {
             const date = document.getElementById('globalDate').value; const dmData = ensureDMData(date); const tbody = document.getElementById('dmCheckBody'); let htmlStr = '';
-            PRO_ORDER.forEach(ws => { if(!dmData[ws]) dmData[ws] = {am:0,pm:0}; htmlStr += `<tr><td style="font-weight:800; color:var(--midea-dark);">${ws}</td><td><input type="checkbox" style="width:16px;height:16px;cursor:pointer; accent-color:var(--midea-blue);" ${dmData[ws].am?'checked':''} onchange="db.dm['${date}']['${ws}'].am=this.checked?1:0; triggerAutoSave(); renderDMRate();"></td><td><input type="checkbox" style="width:16px;height:16px;cursor:pointer; accent-color:var(--midea-blue);" ${dmData[ws].pm?'checked':''} onchange="db.dm['${date}']['${ws}'].pm=this.checked?1:0; triggerAutoSave(); renderDMRate();"></td></tr>`; });
+            // 只渲染车间，不包含HFS和曲轴生产线
+            const workshopsOnly = ['PRO1', 'PRO2', 'PRO3', 'PRO4'];
+            workshopsOnly.forEach(ws => { 
+                if(!dmData[ws]) dmData[ws] = {am:0,pm:0}; 
+                htmlStr += `<tr><td style="font-weight:800; color:var(--midea-dark);">${ws}</td><td><input type="checkbox" style="width:16px;height:16px;cursor:pointer; accent-color:var(--midea-blue);" ${dmData[ws].am?'checked':''} onchange="db.dm['${date}']['${ws}'].am=this.checked?1:0; triggerAutoSave(); renderDMRate();"></td><td><input type="checkbox" style="width:16px;height:16px;cursor:pointer; accent-color:var(--midea-blue);" ${dmData[ws].pm?'checked':''} onchange="db.dm['${date}']['${ws}'].pm=this.checked?1:0; triggerAutoSave(); renderDMRate();"></td></tr>`; 
+            });
             tbody.innerHTML = htmlStr; renderDMRate(); 
         }
         window.renderDMRate = function() {
             const type = document.getElementById('dmAggType').value; let dates = Object.keys(db.dm).sort(); 
             if(type === 'week') dates = dates.slice(-7); else if(type === 'month') dates = dates.filter(d => d.startsWith(document.getElementById('globalDate').value.substring(0,7)));
             const tbody = document.getElementById('dmRateBody'); if(dates.length === 0) { tbody.innerHTML=''; return; }
-            let stats = { 'PRO1':{t:0,a:0}, 'PRO2':{t:0,a:0}, 'PRO3':{t:0,a:0}, 'PRO4':{t:0,a:0}, 'H_MOTOR':{t:0,a:0}, 'F_MOTOR':{t:0,a:0}, 'S_MOTOR':{t:0,a:0}, 'CRANK':{t:0,a:0} };
-            dates.forEach(d => { PRO_ORDER.forEach(ws => { if(db.dm[d] && db.dm[d][ws]) { stats[ws].t += 2; stats[ws].a += (db.dm[d][ws].am + db.dm[d][ws].pm); } }); });
+            // 只包含车间，不包括HFS和曲轴生产线
+            let stats = { 'PRO1':{t:0,a:0}, 'PRO2':{t:0,a:0}, 'PRO3':{t:0,a:0}, 'PRO4':{t:0,a:0} };
+            dates.forEach(d => { 
+                Object.keys(stats).forEach(ws => { 
+                    if(db.dm[d] && db.dm[d][ws]) { 
+                        stats[ws].t += 2; 
+                        stats[ws].a += (db.dm[d][ws].am + db.dm[d][ws].pm); 
+                    } 
+                }); 
+            });
             let list = Object.keys(stats).map(ws => ({ ws, t:stats[ws].t, a:stats[ws].a, r: stats[ws].t>0 ? (stats[ws].a/stats[ws].t*100).toFixed(0) : 0 })).sort((a,b) => b.r - a.r);
             let htmlStr = ''; list.forEach((r, i) => { htmlStr += `<tr><td><b style="color:var(--midea-blue);">${i+1}</b></td><td style="color:var(--midea-dark); font-weight:800;">${r.ws}</td><td>${r.t}</td><td>${r.a}</td><td class="${r.r==100?'val-success':'val-danger'}">${r.r}%</td></tr>`; });
             tbody.innerHTML = htmlStr;
@@ -4523,6 +4549,19 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (${data.qty}套, ${data.
         window.renderReport = function() {
             let type = document.getElementById('reportType').value; let dateVal = document.getElementById('globalDate').value; let dates = []; 
             if(type === 'day') { dates = [dateVal]; } else if(type === 'month') { dates = Object.keys(db.prod).filter(d => d.startsWith(dateVal.substring(0,7))); } else { dates = Object.keys(db.prod).sort().filter(d => d <= dateVal).slice(-7); }
+            
+            // 如果没有数据，显示默认数据
+            if(dates.length === 0) {
+                dates = [dateVal];
+                // 初始化默认数据
+                if(!db.prod[dateVal]) {
+                    db.prod[dateVal] = {};
+                    ['PRO1','PRO2','PRO3','PRO4'].forEach(ws => {
+                        db.prod[dateVal][ws] = {o:0, t:0, h:0, att:0, head:0, o1:0, o2:0, o3:0};
+                    });
+                }
+            }
+            
             document.getElementById('r-period').innerText = type==='day'?dateVal:(type==='month'?dateVal.substring(0,7)+` ${t('opt_month')}`:`${t('opt_7d')}`);
             let totalO=0, totalH=0, totalL=0; let totalAtt=0, totalHead=0;
             let wsAgg = { 'PRO1':{o:0,t:0,h:0,att:0,head:0}, 'PRO2':{o:0,t:0,h:0,att:0,head:0}, 'PRO3':{o:0,t:0,h:0,att:0,head:0}, 'PRO4':{o:0,t:0,h:0,att:0,head:0} };
@@ -4586,14 +4625,107 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (${data.qty}套, ${data.
             }
             document.getElementById('rp-loss-rank-body').innerHTML = rankHtml;
             if (typeof Chart !== 'undefined') {
-                const ctxBar = document.getElementById('r-barChart').getContext('2d'); if(rBarChart) rBarChart.destroy();
-                let wsData = Object.keys(wsAgg).map(ws => ({ ws, out:wsAgg[ws].o, tgt:wsAgg[ws].t }));
-                rBarChart = new Chart(ctxBar, { type: 'bar', data: { labels: wsData.map(d=>d.ws), datasets: [ { label:t('act_label'), data: wsData.map(d=>d.out), backgroundColor: '#0062ff', borderRadius:6 }, { label:t('tgt_label'), data: wsData.map(d=>d.tgt), backgroundColor: '#cbd5e1', borderRadius:6 }]}, options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 25 } }, plugins: { datalabels: { align: 'top', anchor: 'end', color: (c) => c.datasetIndex === 0 ? '#0062ff' : '#64748b', font: { weight: '900', size: 12 } } }, scales:{y:{grace: '20%', grid:{color:'rgba(0,163,224,0.05)'}},x:{grid:{display:false}}} } });
-                const ctxPie = document.getElementById('r-pieChart').getContext('2d'); if(rPieChart) rPieChart.destroy();
-                const auroraColors = ['#0f172a', '#1e3a8a', '#0284c7', '#38bdf8', '#7dd3fc', '#e2e8f0', '#94a3b8', '#475569', '#334155', '#0ea5e9', '#0369a1'];
-                let activeDepts = Object.keys(pDept).filter(k => pDept[k].t > 0);
-                let pLabels = activeDepts; let pData = activeDepts.map(k => pDept[k].t); let bgColors = pLabels.map(l => auroraColors[DEPTS.indexOf(l)] || '#cbd5e1');
-                rPieChart = new Chart(ctxPie, { type: 'doughnut', data: { labels: pLabels.length?pLabels:['N/A'], datasets: [{ data: pLabels.length?pData:[100], backgroundColor: pLabels.length?bgColors:['rgba(0,163,224,0.2)'], borderWidth: 3, borderColor: '#fff', hoverOffset: 4 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '65%', layout: { padding: 20 }, plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: {size: 11, weight:'bold'} } }, datalabels: { color: '#fff', font: { weight: '800', size: 12 }, textShadowColor: 'rgba(0,0,0,0.5)', textShadowBlur: 4, formatter: (v, ctx) => { let sum=0; let dataArr=ctx.chart.data.datasets[0].data; dataArr.map(d=>{sum+=d}); return (v*100/sum).toFixed(0)+'%'; } } } } });
+                try {
+                    const ctxBar = document.getElementById('r-barChart');
+                    if(ctxBar) {
+                        const ctxBar2d = ctxBar.getContext('2d');
+                        if(rBarChart) rBarChart.destroy();
+                        let wsData = Object.keys(wsAgg).map(ws => ({ ws, out:wsAgg[ws].o, tgt:wsAgg[ws].t }));
+                        rBarChart = new Chart(ctxBar2d, { 
+                            type: 'bar', 
+                            data: { 
+                                labels: wsData.map(d=>d.ws), 
+                                datasets: [ 
+                                    { label:t('act_label'), data: wsData.map(d=>d.out), backgroundColor: '#0062ff', borderRadius:6 }, 
+                                    { label:t('tgt_label'), data: wsData.map(d=>d.tgt), backgroundColor: '#cbd5e1', borderRadius:6 }
+                                ]
+                            }, 
+                            options: { 
+                                responsive: true, 
+                                maintainAspectRatio: false, 
+                                layout: { padding: { top: 25 } }, 
+                                plugins: { 
+                                    datalabels: { 
+                                        align: 'top', 
+                                        anchor: 'end', 
+                                        color: (c) => c.datasetIndex === 0 ? '#0062ff' : '#64748b', 
+                                        font: { weight: '900', size: 12 } 
+                                    } 
+                                }, 
+                                scales:{
+                                    y:{grace: '20%', grid:{color:'rgba(0,163,224,0.05)'}},
+                                    x:{grid:{display:false}}
+                                }
+                            } 
+                        });
+                    }
+                } catch (barError) {
+                    console.error('柱状图渲染错误:', barError);
+                }
+                
+                try {
+                    const ctxPie = document.getElementById('r-pieChart');
+                    if(ctxPie) {
+                        const ctxPie2d = ctxPie.getContext('2d');
+                        if(rPieChart) rPieChart.destroy();
+                        const auroraColors = ['#0f172a', '#1e3a8a', '#0284c7', '#38bdf8', '#7dd3fc', '#e2e8f0', '#94a3b8', '#475569', '#334155', '#0ea5e9', '#0369a1'];
+                        let activeDepts = Object.keys(pDept).filter(k => pDept[k].t > 0);
+                        let pLabels = activeDepts; 
+                        let pData = activeDepts.map(k => pDept[k].t); 
+                        let bgColors = pLabels.map(l => auroraColors[DEPTS.indexOf(l)] || '#cbd5e1');
+                        
+                        rPieChart = new Chart(ctxPie2d, { 
+                            type: 'doughnut', 
+                            data: { 
+                                labels: pLabels.length?pLabels:['暂无数据'], 
+                                datasets: [{ 
+                                    data: pLabels.length?pData:[100], 
+                                    backgroundColor: pLabels.length?bgColors:['rgba(0,163,224,0.2)'], 
+                                    borderWidth: 3, 
+                                    borderColor: '#fff', 
+                                    hoverOffset: 4 
+                                }] 
+                            }, 
+                            options: { 
+                                responsive: true, 
+                                maintainAspectRatio: false, 
+                                cutout: '65%', 
+                                layout: { padding: 20 }, 
+                                plugins: { 
+                                    legend: { 
+                                        position: 'right', 
+                                        labels: { 
+                                            boxWidth: 12, 
+                                            usePointStyle: true, 
+                                            font: {size: 11, weight:'bold'} 
+                                        } 
+                                    }, 
+                                    datalabels: { 
+                                        color: '#fff', 
+                                        font: { weight: '800', size: 12 }, 
+                                        textShadowColor: 'rgba(0,0,0,0.5)', 
+                                        textShadowBlur: 4, 
+                                        formatter: (v, ctx) => { 
+                                            let sum=0; 
+                                            let dataArr=ctx.chart.data.datasets[0].data; 
+                                            dataArr.map(d=>{sum+=d}); 
+                                            return sum > 0 ? (v*100/sum).toFixed(0)+'%' : '0%'; 
+                                        } 
+                                    } 
+                                } 
+                            } 
+                        });
+                    }
+                } catch (pieError) {
+                    console.error('饼图渲染错误:', pieError);
+                }
+            } else {
+                console.warn('Chart.js 未加载，图表无法渲染');
+                // 显示图表占位信息
+                const barChartEl = document.getElementById('r-barChart');
+                const pieChartEl = document.getElementById('r-pieChart');
+                if(barChartEl) barChartEl.innerHTML = '<div style="text-align:center;padding:40px;color:#64748b;font-size:14px;"><i class="fa-solid fa-chart-bar"></i><br>图表库加载中...</div>';
+                if(pieChartEl) pieChartEl.innerHTML = '<div style="text-align:center;padding:40px;color:#64748b;font-size:14px;"><i class="fa-solid fa-chart-pie"></i><br>图表库加载中...</div>';
             }
             applyReportFilters();
         }
