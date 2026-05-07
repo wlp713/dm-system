@@ -811,7 +811,10 @@
                 <div class="panel" style="flex-grow:1; display:flex; flex-direction:column; min-height:400px;">
                     <div class="panel-title">
                         <span><i class="fa-solid fa-table-list" style="color:var(--midea-blue)"></i> 每日实况数据录入与闭环管理</span>
-                        <button class="btn-action" onclick="sqdipAdv.quickFillMonth()"><i class="fa-solid fa-bolt"></i> 批量填充全月 OK</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn-action" onclick="window.fillFromDefaultTargets()" title="从长期默认目标填充当前日期的目标值"><i class="fa-solid fa-copy"></i> 从默认目标填充</button>
+                            <button class="btn-action" onclick="sqdipAdv.quickFillMonth()"><i class="fa-solid fa-bolt"></i> 批量填充全月 OK</button>
+                        </div>
                     </div>
                     <div class="filter-bar">
                         <span style="font-size:12px; font-weight:800; color:var(--text-muted);"><i class="fa-solid fa-filter"></i> 筛选:</span>
@@ -828,14 +831,14 @@
                             <thead>
                                 <tr>
                                     <th style="width: 65px;">日期</th>
-                                    <th style="width: 75px;">Tgt(目标)</th>
-                                    <th style="width: 75px;">Act(实际)</th>
-                                    <th style="width: 60px;">差值</th>
-                                    <th style="width: 75px;">判定</th>
-                                    <th style="width:50%; min-width:300px;">异常说明/精益对策分析</th>
+                                    <th style="width: 100px;">Tgt(目标)</th>
+                                    <th style="width: 100px;">Act(实际)</th>
+                                    <th style="width: 70px;">差值</th>
+                                    <th style="width: 70px;">判定</th>
+                                    <th style="width:35%; min-width:200px;">异常说明/精益对策分析</th>
                                     <th style="width: 100px;">闭环状态</th>
                                     <th style="width: 110px;">闭环时间</th>
-                                    <th style="width: 85px;">责任人</th>
+                                    <th style="width: 120px;">责任人</th>
                                 </tr>
                             </thead>
                             <tbody id="sqdip-adv-detail-tbody"></tbody>
@@ -2590,6 +2593,25 @@
             ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(ws => { day[ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, shifts: { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } } }; });
             return day;
         };
+        
+        // 长期默认目标数据
+        const getEmptyDefaultTargets = () => ({
+            'PRO1': { t: 2000, h: 85, att: 121, head: 129 },
+            'PRO2': { t: 23400, h: 10000, att: 545, head: 556,
+                lines: {
+                    'LINE A': { t: 6000, h: 2500 },
+                    'LINE B': { t: 6000, h: 2500 },
+                    'LINE C': { t: 6000, h: 2500 },
+                    'LINE D': { t: 5400, h: 2500 }
+                }
+            },
+            'PRO3': { t: 5000, h: 300, att: 45, head: 48 },
+            'PRO4': { t: 3000, h: 200, att: 32, head: 34 },
+            'H_MOTOR': { t: 800, h: 60, att: 18, head: 20 },
+            'F_MOTOR': { t: 600, h: 50, att: 15, head: 16 },
+            'S_MOTOR': { t: 400, h: 40, att: 12, head: 13 },
+            'CRANK': { t: 500, h: 45, att: 14, head: 15 }
+        });
         const getEmptyDM = () => ({ 'PRO1':{am:0,pm:0}, 'PRO2':{am:0,pm:0}, 'PRO3':{am:0,pm:0}, 'PRO4':{am:0,pm:0}, 'H_MOTOR':{am:0,pm:0}, 'F_MOTOR':{am:0,pm:0}, 'S_MOTOR':{am:0,pm:0}, 'CRANK':{am:0,pm:0} });
         function repairData() {
             if(!db.dLinesConfig) db.dLinesConfig = { PRO1:[], PRO3:[], PRO4:[] }; 
@@ -2601,6 +2623,7 @@
             if(!db.sysDetail.mid) db.sysDetail.mid = [];
             if(!db.kaizen) db.kaizen = [];
             if(!db.problems) db.problems = [];
+            if(!db.defaultTargets) db.defaultTargets = getEmptyDefaultTargets();
             for(let d in db.prod) { 
                 if (!d || d === "undefined") continue;
                 if (!db.prod[d]) { delete db.prod[d]; continue; }
@@ -2871,7 +2894,13 @@
                 try { window.sqdipAdv.refresh(); } catch(e) { console.warn('SQDIP refresh skipped:', e); }
             }
         }
-        window.updateCell = function(ws, field, val) { let dateStr = document.getElementById('globalDate').value; db.prod[dateStr][ws][field] = safeNum(val); triggerAutoSave(); renderInput(); };
+        window.updateCell = function(ws, field, val) { 
+            let dateStr = document.getElementById('globalDate').value; 
+            db.prod[dateStr][ws][field] = safeNum(val); 
+            triggerAutoSave(); 
+            syncInputToProdReport(dateStr);
+            renderInput(); 
+        };
         // 新增：电机线班次数据更新函数
         window.updateMotorShift = function(ws, shift, field, val) {
             var dateStr = document.getElementById('globalDate').value;
@@ -2891,46 +2920,14 @@
             renderInput(); // 立即刷新显示
         };
         
-        // 独立产线整线产出直接编辑（当班次数据不全时）
+        // 独立产线整线产出直接编辑（优先使用总产出，不自动分配班次）
         window.updateMotorTotal = function(ws, field, val) {
             var dateStr = document.getElementById('globalDate').value;
             if(!db.prod[dateStr]) db.prod[dateStr] = getEmptyDay();
             if(!db.prod[dateStr][ws]) db.prod[dateStr][ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, shifts: { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } } };
             
+            // 直接更新总产出，班次数据保持不变
             db.prod[dateStr][ws][field] = safeNum(val);
-            
-            // 如果编辑的是目标(t)，按比例分配到班次（假设白班70%，夜班30%）
-            if (field === 't') {
-                var totalT = safeNum(val);
-                var dT = Math.round(totalT * 0.7); // 白班70%
-                var nT = totalT - dT; // 夜班30%
-                if(!db.prod[dateStr][ws].shifts) db.prod[dateStr][ws].shifts = { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } };
-                db.prod[dateStr][ws].shifts.D.t = dT;
-                db.prod[dateStr][ws].shifts.N.t = nT;
-            }
-            
-            // 如果编辑的是实际产出(o)，按比例分配到班次（根据已有班次比例或默认70%/30%）
-            if (field === 'o') {
-                var totalO = safeNum(val);
-                var dO = safeNum(db.prod[dateStr][ws].shifts?.D?.o) || 0;
-                var nO = safeNum(db.prod[dateStr][ws].shifts?.N?.o) || 0;
-                var totalShiftO = dO + nO;
-                
-                if (totalShiftO > 0) {
-                    // 如果班次已有数据，按比例调整
-                    var dRatio = dO / totalShiftO;
-                    var nRatio = nO / totalShiftO;
-                    db.prod[dateStr][ws].shifts.D.o = Math.round(totalO * dRatio);
-                    db.prod[dateStr][ws].shifts.N.o = totalO - Math.round(totalO * dRatio);
-                } else {
-                    // 如果班次没数据，默认分配
-                    var dO = Math.round(totalO * 0.7); // 白班70%
-                    var nO = totalO - dO; // 夜班30%
-                    if(!db.prod[dateStr][ws].shifts) db.prod[dateStr][ws].shifts = { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } };
-                    db.prod[dateStr][ws].shifts.D.o = dO;
-                    db.prod[dateStr][ws].shifts.N.o = nO;
-                }
-            }
             
             triggerAutoSave();
             // 同步到报表
@@ -2938,6 +2935,44 @@
                 syncInputToProdReport(dateStr);
             }
             renderInput(); // 立即刷新显示
+        };
+        
+        // 从默认目标填充当前日期的目标值
+        window.fillFromDefaultTargets = function() {
+            var dateStr = document.getElementById('globalDate').value;
+            if(!confirm('确定要从长期默认目标填充当前日期的目标值吗？实际产出数据将保持不变。')) return;
+            
+            ensureProdData(dateStr);
+            
+            // 填充各车间目标值
+            Object.keys(db.defaultTargets).forEach(function(ws) {
+                var defaults = db.defaultTargets[ws];
+                if (defaults) {
+                    // 填充主车间目标
+                    if (db.prod[dateStr][ws]) {
+                        if (defaults.t !== undefined) db.prod[dateStr][ws].t = defaults.t;
+                        if (defaults.h !== undefined) db.prod[dateStr][ws].h = defaults.h;
+                        if (defaults.att !== undefined) db.prod[dateStr][ws].att = defaults.att;
+                        if (defaults.head !== undefined) db.prod[dateStr][ws].head = defaults.head;
+                    }
+                    
+                    // 填充PRO2各线体目标
+                    if (ws === 'PRO2' && defaults.lines) {
+                        Object.keys(defaults.lines).forEach(function(lineName) {
+                            if (db.prod[dateStr].PRO2.lines[lineName]) {
+                                var lineDefaults = defaults.lines[lineName];
+                                if (lineDefaults.t !== undefined) db.prod[dateStr].PRO2.lines[lineName].t = lineDefaults.t;
+                                if (lineDefaults.h !== undefined) db.prod[dateStr].PRO2.lines[lineName].h = lineDefaults.h;
+                            }
+                        });
+                    }
+                }
+            });
+            
+            triggerAutoSave();
+            syncInputToProdReport(dateStr);
+            renderInput();
+            showToast('fa-solid fa-check', '已从默认目标填充当前日期的目标值');
         };
         // FIXED: 重写班次编辑函数，确保多线体数据互不干扰
         window.updateShiftCell = function(lineName, shift, field, val) {
@@ -2984,7 +3019,9 @@
                 let line = db.prod[dateStr][ws].dLines.find(l => String(l.id) === String(id)); if(line) line[field] = safeNum(val); 
                 db.prod[dateStr][ws][field] = db.prod[dateStr][ws].dLines.reduce((sum, l) => sum + safeNum(l[field]), 0);
             }
-            triggerAutoSave(); renderInput();
+            triggerAutoSave(); 
+            syncInputToProdReport(dateStr);
+            renderInput();
         };
         window.addDLine = function(ws) { let newId = Date.now() + Math.random(); let newName = `新线体-${Math.floor(Math.random()*100)}`; db.dLinesConfig[ws].push({id: newId, name: newName}); Object.keys(db.prod).forEach(d => { db.prod[d][ws].dLines.push({ id: newId, name: newName, t:0, o:0, h:0, att:0, head:0 }); }); triggerAutoSave(); renderInput(); };
         window.delDLine = function(ws, id) { db.dLinesConfig[ws] = db.dLinesConfig[ws].filter(l => String(l.id) !== String(id)); Object.keys(db.prod).forEach(d => { db.prod[d][ws].dLines = db.prod[d][ws].dLines.filter(l => String(l.id) !== String(id)); }); triggerAutoSave(); renderInput(); };
@@ -5450,42 +5487,75 @@
             renderMacroTrend();
         }
         api.quickFillMonth = function() {
-            if(!confirm(`确定要将 ${currentMonth} 月 ${currentMetric} 指标未填日期全部设为达标吗？`)) return;
+            if(!confirm(`确定要将 ${currentMonth} 月 ${currentMetric} 指标所有NG日期改为达标(OK)吗？`)) return;
             let days = getDaysInMonth(currentMonth);
+            let changed = 0;
             for(let i=1; i<=days; i++) {
                 let d = db[currentMonth][currentWs][currentMetric][i];
-                if(d.act === null) {
-                    d.act = d.tgt;
+                // 如果实际值为空或者不是绿色（NG），就改为达标
+                if(d.act === null || !d.isGreen) {
+                    if(d.act === null) d.act = d.tgt;
                     d.gap = 0;
                     d.isGreen = true;
                     d.reason = "达标";
                     d.status = "已解决";
+                    changed++;
                 }
             }
             triggerAutoSaveSQDIP();
             renderTable(true);
             renderChart();
+            showToast('fa-solid fa-check', `已将 ${changed} 个NG日期改为达标`);
         };
         function handleInput(day, field, val) {
             let record = db[currentMonth][currentWs][currentMetric][day];
+            
             if(['reason', 'status', 'close_time', 'owner'].includes(field)) {
                 record[field] = val;
             } else {
                 let numVal = parseFloat(val);
                 if(!isNaN(numVal)) {
                     record[field] = numVal;
-                    record.gap = (record.act !== null) ? (record.act - record.tgt).toFixed(1) : 0;
-                    if(record.act !== null) {
-                        if(currentMetric === 'S' || currentMetric === 'D' || currentMetric === 'I') record.isGreen = record.act <= record.tgt; 
-                        else record.isGreen = record.act >= record.tgt; 
+                    
+                    // 总是重新计算差值（无论编辑的是目标还是实际）
+                    if(record.tgt !== null && record.act !== null) {
+                        record.gap = (record.act - record.tgt).toFixed(1);
+                    } else {
+                        record.gap = 0;
                     }
+                    
+                    // 重新判定是否达标
+                    if(record.tgt !== null && record.act !== null) {
+                        if(currentMetric === 'S' || currentMetric === 'D' || currentMetric === 'I') {
+                            // S(安全)、D(交付)、I(库存) - 实际值 <= 目标值 为达标
+                            record.isGreen = record.act <= record.tgt; 
+                        } else {
+                            // Q(质量)、P(效率) - 实际值 >= 目标值 为达标
+                            record.isGreen = record.act >= record.tgt; 
+                        }
+                    } else {
+                        record.isGreen = false;
+                    }
+                    
                 } else if(val === '') {
-                    record.act = null; record.gap = 0; record.isGreen = false;
+                    // 清空实际值
+                    if(field === 'act') {
+                        record.act = null; 
+                        record.gap = 0; 
+                        record.isGreen = false;
+                    }
+                    // 清空目标值
+                    if(field === 'tgt') {
+                        record.tgt = null;
+                        record.gap = 0;
+                        record.isGreen = false;
+                    }
                 }
             }
+            
             triggerAutoSaveSQDIP();
             renderTable(true);
-            if(!['reason', 'status', 'close_time', 'owner'].includes(field)) renderChart();     
+            renderChart(); // 总是重新渲染图表
         }
         function renderTable(isUpdate = false) {
             let fDate = document.getElementById('sqdip-adv-f-date').value.trim();
