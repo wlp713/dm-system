@@ -1563,10 +1563,10 @@
         const NEW_MOTOR_NAMES = { 'H_MOTOR': 'H电机线产出', 'F_MOTOR': 'F电机线产出', 'S_MOTOR': 'S系列电机线产出', 'CRANK': '曲轴线产出' };
         // 按照用户历史指令：加入 IP 与 QA 作为独立部门，以及 Pro.1-Pro.6
         const DEPTS = ['Pro.1', 'Pro.2', 'Pro.3', 'Pro.4', 'Pro.5', 'Pro.6', 'PE', 'HR', 'R&D', 'PC', 'IP', 'QA'];
-        // ================= AI 极速引擎 (Gemini 2.5 Flash-Lite) =================
-        const AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-        const AI_MODEL = "gemini-2.5-flash-lite";
-        const AI_KEY = "Bearer AIzaSyDNmfpqpqn54xegG75GawpfuWBEpnQNAPc"; 
+        // ================= AI 极速引擎 (GLM-Z1-9B) =================
+        const AI_URL = "https://api.siliconflow.cn/v1/chat/completions";
+        const AI_MODEL = "THUDM/GLM-Z1-9B-0414";
+        const AI_KEY = "Bearer sk-pdmxRwJWkNKMXYEWjHUaSRxKkSfHqHqNQJyWJyH4lF"; 
         async function callAI_API(prompt, retryCount = 0) {
             try {
                 const res = await fetch(AI_URL, {
