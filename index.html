@@ -699,6 +699,7 @@
                     <div class="section-title" style="flex-shrink:0;">
                         <h3><i class="fa-solid fa-pen-to-square"></i> <span data-i18n="input_title">生产与人力底账录入</span></h3>
                         <div class="flex-row">
+                            <button class="btn btn-warning" onclick="window.showLongTermTargetManager()" title="设置长期目标并同步到整个月"><i class="fa-solid fa-bullseye"></i> 长期目标管理</button>
                             <button class="btn btn-success" onclick="document.getElementById('paste-modal').style.display='flex'"><i class="fa-solid fa-clipboard"></i> <span data-i18n="btn_paste">极速/AI导入</span></button>
                             <button class="btn btn-primary" onclick="showImportGuideAndOpenFile()"><i class="fa-solid fa-industry"></i> <span data-i18n="btn_import_prod">选择文件导入</span></button>
                             <input type="file" id="importProdFile" accept=".xlsx, .xls, .csv" style="display:none;" onchange="handleExcelImport(this, 'prod')">
@@ -2973,6 +2974,180 @@
             syncInputToProdReport(dateStr);
             renderInput();
             showToast('fa-solid fa-check', '已从默认目标填充当前日期的目标值');
+        };
+        
+        // 长期目标管理功能
+        window.showLongTermTargetManager = function() {
+            // 初始化数据结构
+            if (!db.longTermTargets) {
+                db.longTermTargets = {
+                    monthlyWorkDays: 22,  // 默认每月工作天数
+                    workshops: {
+                        PRO1: { dailyTarget: 2000, monthlyTarget: 44000, att: 121, head: 129, upphTarget: 23.5 },
+                        PRO2: { dailyTarget: 23400, monthlyTarget: 514800, att: 545, head: 556, upphTarget: 4.29,
+                            lines: {
+                                'LINE A': { dailyTarget: 6000, monthlyTarget: 132000 },
+                                'LINE B': { dailyTarget: 6000, monthlyTarget: 132000 },
+                                'LINE C': { dailyTarget: 6000, monthlyTarget: 132000 },
+                                'LINE D': { dailyTarget: 5400, monthlyTarget: 118800 }
+                            }
+                        },
+                        PRO3: { dailyTarget: 5000, monthlyTarget: 110000, att: 45, head: 48, upphTarget: 111.11 },
+                        PRO4: { dailyTarget: 3000, monthlyTarget: 66000, att: 32, head: 34, upphTarget: 93.75 }
+                    },
+                    independentLines: {
+                        H_MOTOR: { dailyTarget: 800, monthlyTarget: 17600, att: 18, head: 20 },
+                        F_MOTOR: { dailyTarget: 600, monthlyTarget: 13200, att: 15, head: 16 },
+                        S_MOTOR: { dailyTarget: 400, monthlyTarget: 8800, att: 12, head: 13 },
+                        CRANK: { dailyTarget: 500, monthlyTarget: 11000, att: 14, head: 15 }
+                    }
+                };
+            }
+            
+            let lt = db.longTermTargets;
+            let currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+            
+            let html = `<h3 style="color:var(--midea-dark); margin-bottom:15px;">🎯 长期目标管理</h3>`;
+            
+            // 全局设置
+            html += `<div style="margin-bottom:20px; background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--border);">
+                <h4 style="margin-top:0; color:var(--midea-blue);">📅 全局设置</h4>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px;">
+                    <div>
+                        <label style="display:block; font-weight:600; font-size:12px; margin-bottom:4px;">每月工作天数</label>
+                        <input type="number" id="monthlyWorkDays" value="${lt.monthlyWorkDays}" min="1" max="31" style="width:100px; padding:6px; border:1px solid var(--border); border-radius:4px;" onchange="updateLongTermTarget('monthlyWorkDays', this.value)">
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">影响月度目标分解</div>
+                    </div>
+                    <div>
+                        <label style="display:block; font-weight:600; font-size:12px; margin-bottom:4px;">当前月份</label>
+                        <input type="month" id="targetMonth" value="${currentMonth}" style="width:120px; padding:6px; border:1px solid var(--border); border-radius:4px;" onchange="updateTargetMonth(this.value)">
+                    </div>
+                </div>
+            </div>`;
+            
+            // 4个车间目标
+            html += `<div style="margin-bottom:20px;">
+                <h4 style="color:var(--midea-blue); border-bottom:1px solid var(--border-light); padding-bottom:6px;">🏭 4个车间目标</h4>
+                <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:15px; margin-top:12px;">`;
+            
+            ['PRO1', 'PRO2', 'PRO3', 'PRO4'].forEach(ws => {
+                let wsData = lt.workshops[ws] || {};
+                let monthlyTarget = wsData.dailyTarget ? wsData.dailyTarget * lt.monthlyWorkDays : 0;
+                
+                html += `<div style="background:white; border:1px solid var(--border); border-radius:8px; padding:12px;">
+                    <h5 style="margin-top:0; color:var(--midea-dark); font-weight:800;">${ws}</h5>
+                    <table style="width:100%; font-size:12px;">
+                        <tr><td style="padding:3px 0;">每日目标:</td><td><input type="number" value="${wsData.dailyTarget || 0}" style="width:80px; padding:3px; text-align:center; border:1px solid var(--border); border-radius:3px;" onchange="updateWorkshopTarget('${ws}', 'dailyTarget', this.value)"></td></tr>
+                        <tr><td style="padding:3px 0;">月度目标:</td><td><span style="font-weight:bold; color:var(--midea-blue);">${monthlyTarget.toLocaleString()}</span></td></tr>
+                        <tr><td style="padding:3px 0;">目标UPPH:</td><td><input type="number" step="0.01" value="${wsData.upphTarget || 0}" style="width:80px; padding:3px; text-align:center; border:1px solid var(--border); border-radius:3px;" onchange="updateWorkshopTarget('${ws}', 'upphTarget', this.value)"></td></tr>
+                        <tr><td style="padding:3px 0;">定编人数:</td><td><input type="number" value="${wsData.head || 0}" style="width:80px; padding:3px; text-align:center; border:1px solid var(--border); border-radius:3px;" onchange="updateWorkshopTarget('${ws}', 'head', this.value)"></td></tr>
+                    </table>
+                </div>`;
+            });
+            
+            html += `</div></div>`;
+            
+            // 4条独立产线
+            html += `<div style="margin-bottom:20px;">
+                <h4 style="color:var(--midea-blue); border-bottom:1px solid var(--border-light); padding-bottom:6px;">⚡ 4条独立产线目标</h4>
+                <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:15px; margin-top:12px;">`;
+            
+            ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(line => {
+                let lineData = lt.independentLines[line] || {};
+                let displayName = line === 'H_MOTOR' ? 'H电机线' : 
+                                 line === 'F_MOTOR' ? 'F电机线' : 
+                                 line === 'S_MOTOR' ? 'S电机线' : '曲轴线';
+                
+                html += `<div style="background:white; border:1px solid var(--border); border-radius:8px; padding:12px;">
+                    <h5 style="margin-top:0; color:var(--midea-dark); font-weight:800;">${displayName}</h5>
+                    <table style="width:100%; font-size:12px;">
+                        <tr><td style="padding:3px 0;">每日目标:</td><td><input type="number" value="${lineData.dailyTarget || 0}" style="width:80px; padding:3px; text-align:center; border:1px solid var(--border); border-radius:3px;" onchange="updateIndependentLineTarget('${line}', 'dailyTarget', this.value)"></td></tr>
+                        <tr><td style="padding:3px 0;">月度目标:</td><td><span style="font-weight:bold; color:var(--midea-blue);">${(lineData.dailyTarget || 0) * lt.monthlyWorkDays}</span></td></tr>
+                        <tr><td style="padding:3px 0;">定编人数:</td><td><input type="number" value="${lineData.head || 0}" style="width:80px; padding:3px; text-align:center; border:1px solid var(--border); border-radius:3px;" onchange="updateIndependentLineTarget('${line}', 'head', this.value)"></td></tr>
+                    </table>
+                </div>`;
+            });
+            
+            html += `</div></div>`;
+            
+            // 功能按钮
+            html += `<div style="margin-top:20px; display:flex; gap:10px; justify-content:center;">
+                <button class="btn btn-success" onclick="applyLongTermTargetsToMonth()" style="font-weight:bold;"><i class="fa-solid fa-calendar-check"></i> 应用到当前月份所有天数</button>
+                <button class="btn btn-primary" onclick="closeModal()" style="font-weight:bold;"><i class="fa-solid fa-check"></i> 保存设置</button>
+                <button class="btn btn-secondary" onclick="closeModal()">关闭</button>
+            </div>`;
+            
+            showModal('长期目标管理', html);
+        };
+        
+        window.updateLongTermTarget = function(field, value) {
+            if (!db.longTermTargets) db.longTermTargets = {};
+            db.longTermTargets[field] = Number(value) || 0;
+            triggerAutoSave();
+            showToast('fa-solid fa-save', `${field}已更新为${value}`);
+        };
+        
+        window.updateWorkshopTarget = function(ws, field, value) {
+            if (!db.longTermTargets.workshops) db.longTermTargets.workshops = {};
+            if (!db.longTermTargets.workshops[ws]) db.longTermTargets.workshops[ws] = {};
+            db.longTermTargets.workshops[ws][field] = Number(value) || 0;
+            triggerAutoSave();
+            showToast('fa-solid fa-save', `${ws}的${field}已更新为${value}`);
+        };
+        
+        window.updateIndependentLineTarget = function(line, field, value) {
+            if (!db.longTermTargets.independentLines) db.longTermTargets.independentLines = {};
+            if (!db.longTermTargets.independentLines[line]) db.longTermTargets.independentLines[line] = {};
+            db.longTermTargets.independentLines[line][field] = Number(value) || 0;
+            triggerAutoSave();
+            showToast('fa-solid fa-save', `${line}的${field}已更新为${value}`);
+        };
+        
+        window.applyLongTermTargetsToMonth = function() {
+            if(!confirm('确定要将长期目标应用到当前月份的所有天数吗？这会覆盖已设定的每日目标值。')) return;
+            
+            let month = document.getElementById('targetMonth').value; // YYYY-MM
+            let workDays = db.longTermTargets?.monthlyWorkDays || 22;
+            let startDate = new Date(month + '-01');
+            let currentDate = new Date(startDate);
+            
+            for(let i = 0; i < workDays; i++) {
+                let dateStr = currentDate.toISOString().split('T')[0];
+                ensureProdData(dateStr);
+                
+                // 应用车间目标
+                Object.keys(db.longTermTargets?.workshops || {}).forEach(ws => {
+                    let wsData = db.longTermTargets.workshops[ws];
+                    if (wsData && db.prod[dateStr][ws]) {
+                        db.prod[dateStr][ws].t = wsData.dailyTarget || 0;
+                        db.prod[dateStr][ws].head = wsData.head || 0;
+                        // 如果是PRO2，也应用到各线体
+                        if (ws === 'PRO2' && wsData.lines) {
+                            Object.keys(wsData.lines).forEach(lineName => {
+                                if (db.prod[dateStr].PRO2.lines[lineName]) {
+                                    db.prod[dateStr].PRO2.lines[lineName].t = wsData.lines[lineName].dailyTarget || 0;
+                                }
+                            });
+                        }
+                    }
+                });
+                
+                // 应用独立产线目标
+                Object.keys(db.longTermTargets?.independentLines || {}).forEach(line => {
+                    let lineData = db.longTermTargets.independentLines[line];
+                    if (lineData && db.prod[dateStr][line]) {
+                        db.prod[dateStr][line].t = lineData.dailyTarget || 0;
+                        db.prod[dateStr][line].head = lineData.head || 0;
+                    }
+                });
+                
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+            
+            triggerAutoSave();
+            showToast('fa-solid fa-calendar-check', `已应用到${month}月份的所有${workDays}个工作天`);
+            renderInput();
+            closeModal();
         };
         // FIXED: 重写班次编辑函数，确保多线体数据互不干扰
         window.updateShiftCell = function(lineName, shift, field, val) {
