@@ -2545,7 +2545,7 @@
             ['H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK'].forEach(ws => { day[ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, shifts: { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } } }; });
             return day;
         };
-        const getEmptyDM = () => ({ 'PRO1':{am:0,pm:0}, 'PRO2':{am:0,pm:0}, 'PRO3':{am:0,pm:0}, 'PRO4':{am:0,pm:0} });
+        const getEmptyDM = () => ({ 'PRO1':{am:0,pm:0}, 'PRO2':{am:0,pm:0}, 'PRO3':{am:0,pm:0}, 'PRO4':{am:0,pm:0}, 'H_MOTOR':{am:0,pm:0}, 'F_MOTOR':{am:0,pm:0}, 'S_MOTOR':{am:0,pm:0}, 'CRANK':{am:0,pm:0} });
         function repairData() {
             if(!db.dLinesConfig) db.dLinesConfig = { PRO1:[], PRO3:[], PRO4:[] }; 
             if(!db.loss) db.loss = []; 
@@ -3532,15 +3532,15 @@
         };
         function renderDM() {
             const date = document.getElementById('globalDate').value; const dmData = ensureDMData(date); const tbody = document.getElementById('dmCheckBody'); let htmlStr = '';
-            PRO_ORDER.forEach(ws => { htmlStr += `<tr><td style="font-weight:800; color:var(--midea-dark);">${ws}</td><td><input type="checkbox" style="width:16px;height:16px;cursor:pointer; accent-color:var(--midea-blue);" ${dmData[ws].am?'checked':''} onchange="db.dm['${date}']['${ws}'].am=this.checked?1:0; triggerAutoSave(); renderDMRate();"></td><td><input type="checkbox" style="width:16px;height:16px;cursor:pointer; accent-color:var(--midea-blue);" ${dmData[ws].pm?'checked':''} onchange="db.dm['${date}']['${ws}'].pm=this.checked?1:0; triggerAutoSave(); renderDMRate();"></td></tr>`; });
+            PRO_ORDER.forEach(ws => { if(!dmData[ws]) dmData[ws] = {am:0,pm:0}; htmlStr += `<tr><td style="font-weight:800; color:var(--midea-dark);">${ws}</td><td><input type="checkbox" style="width:16px;height:16px;cursor:pointer; accent-color:var(--midea-blue);" ${dmData[ws].am?'checked':''} onchange="db.dm['${date}']['${ws}'].am=this.checked?1:0; triggerAutoSave(); renderDMRate();"></td><td><input type="checkbox" style="width:16px;height:16px;cursor:pointer; accent-color:var(--midea-blue);" ${dmData[ws].pm?'checked':''} onchange="db.dm['${date}']['${ws}'].pm=this.checked?1:0; triggerAutoSave(); renderDMRate();"></td></tr>`; });
             tbody.innerHTML = htmlStr; renderDMRate(); 
         }
         window.renderDMRate = function() {
             const type = document.getElementById('dmAggType').value; let dates = Object.keys(db.dm).sort(); 
             if(type === 'week') dates = dates.slice(-7); else if(type === 'month') dates = dates.filter(d => d.startsWith(document.getElementById('globalDate').value.substring(0,7)));
             const tbody = document.getElementById('dmRateBody'); if(dates.length === 0) { tbody.innerHTML=''; return; }
-            let stats = { 'PRO1':{t:0,a:0}, 'PRO2':{t:0,a:0}, 'PRO3':{t:0,a:0}, 'PRO4':{t:0,a:0} };
-            dates.forEach(d => { PRO_ORDER.forEach(ws => { stats[ws].t += 2; stats[ws].a += (db.dm[d][ws].am + db.dm[d][ws].pm); }); });
+            let stats = { 'PRO1':{t:0,a:0}, 'PRO2':{t:0,a:0}, 'PRO3':{t:0,a:0}, 'PRO4':{t:0,a:0}, 'H_MOTOR':{t:0,a:0}, 'F_MOTOR':{t:0,a:0}, 'S_MOTOR':{t:0,a:0}, 'CRANK':{t:0,a:0} };
+            dates.forEach(d => { PRO_ORDER.forEach(ws => { if(db.dm[d] && db.dm[d][ws]) { stats[ws].t += 2; stats[ws].a += (db.dm[d][ws].am + db.dm[d][ws].pm); } }); });
             let list = Object.keys(stats).map(ws => ({ ws, t:stats[ws].t, a:stats[ws].a, r: stats[ws].t>0 ? (stats[ws].a/stats[ws].t*100).toFixed(0) : 0 })).sort((a,b) => b.r - a.r);
             let htmlStr = ''; list.forEach((r, i) => { htmlStr += `<tr><td><b style="color:var(--midea-blue);">${i+1}</b></td><td style="color:var(--midea-dark); font-weight:800;">${r.ws}</td><td>${r.t}</td><td>${r.a}</td><td class="${r.r==100?'val-success':'val-danger'}">${r.r}%</td></tr>`; });
             tbody.innerHTML = htmlStr;
@@ -4036,8 +4036,8 @@
             let wsAgg = { 'PRO1':{o:0,t:0,h:0,att:0,head:0}, 'PRO2':{o:0,t:0,h:0,att:0,head:0}, 'PRO3':{o:0,t:0,h:0,att:0,head:0}, 'PRO4':{o:0,t:0,h:0,att:0,head:0} };
             dates.forEach(d => { PRO_ORDER.forEach(ws => { let m = calcWsData(d, ws); if(ws === 'PRO2') { totalO+=m.output; totalH+=m.hours; totalL+=m.loss; } totalAtt+=m.att; totalHead+=m.head; wsAgg[ws].o+=m.output; wsAgg[ws].t+=m.target; wsAgg[ws].h+=m.hours; wsAgg[ws].att+=m.att; wsAgg[ws].head+=m.head; }); });
             let avgUpph = totalH > 0 ? (totalO / totalH).toFixed(2) : '0.00'; let avgAttRate = totalHead > 0 ? (totalAtt / totalHead * 100).toFixed(1) : '0.0';
-            let dmTotal=0, dmAct=0; let dmWs = {'PRO1':{t:0,a:0}, 'PRO2':{t:0,a:0}, 'PRO3':{t:0,a:0}, 'PRO4':{t:0,a:0}};
-            dates.forEach(d => { if(db.dm[d]) { PRO_ORDER.forEach(ws => { dmTotal+=2; dmAct+=(db.dm[d][ws].am+db.dm[d][ws].pm); dmWs[ws].t+=2; dmWs[ws].a+=(db.dm[d][ws].am+db.dm[d][ws].pm);}); }});
+            let dmTotal=0, dmAct=0; let dmWs = {'PRO1':{t:0,a:0}, 'PRO2':{t:0,a:0}, 'PRO3':{t:0,a:0}, 'PRO4':{t:0,a:0}, 'H_MOTOR':{t:0,a:0}, 'F_MOTOR':{t:0,a:0}, 'S_MOTOR':{t:0,a:0}, 'CRANK':{t:0,a:0}};
+            dates.forEach(d => { if(db.dm[d]) { PRO_ORDER.forEach(ws => { if(db.dm[d][ws]) { dmTotal+=2; dmAct+=(db.dm[d][ws].am+db.dm[d][ws].pm); dmWs[ws].t+=2; dmWs[ws].a+=(db.dm[d][ws].am+db.dm[d][ws].pm); }}); }});
             let dmRate = dmTotal>0 ? (dmAct/dmTotal*100).toFixed(0) : 0;
             let pTotal=0, pClosed=0; let pDept = {}; DEPTS.forEach(d => { pDept[d] = { t:0, c:0 }; });
             db.problems.forEach(p => { if(dates.includes(p.date)) { pTotal++; if(p.status==='已解决' || p.status==='Closed' || p.status==='แก้ไขแล้ว') pClosed++; let dpt = p.dept||p.department; if(pDept[dpt]) { pDept[dpt].t++; if(p.status==='已解决' || p.status==='Closed' || p.status==='แก้ไขแล้ว') pDept[dpt].c++; } } });
