@@ -528,7 +528,7 @@
         <i class="fa-solid fa-file-excel"></i>
         <p data-i18n="drop_hint">松开鼠标 释放生产与出勤数据进行极速/AI解析</p>
     </div>
-    <div id="paste-modal" class="modal-overlay">
+    <div id="paste-modal" class="modal-overlay" onclick="if(event.target===this) safeCloseModal('paste-modal')">
         <div class="paste-box">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
                 <h3 style="color:var(--midea-dark); font-size:18px; font-weight:800; margin:0;"><i class="fa-solid fa-bolt"></i> <span data-i18n="paste_title">极速 / AI 智能导入引擎</span></h3>
@@ -544,12 +544,15 @@
                 <br>说明：`ws` 必须为 PRO1/PRO2/PRO3/PRO4；PRO2 可填 `line` 为 LINE A-D；PRO1/3/4 可不填 line；date 可为空，默认使用全局业务日期。
             </div>
             <textarea id="pasteInput" class="paste-area" placeholder="在此粘贴 Excel/CSV 内容..."></textarea>
-            <div class="flex-row" style="justify-content: flex-end;">
-                <button class="btn" onclick="safeCloseModal('paste-modal')">取消</button>
+            <div class="flex-row" style="justify-content: space-between; align-items: center;">
+                <button class="btn btn-danger" onclick="forceCloseAllModals()" style="font-size: 11px; padding: 4px 8px;" title="强制关闭所有模态框（紧急情况）"><i class="fa-solid fa-triangle-exclamation"></i> 强制关闭</button>
+                <div>
+                    <button class="btn" onclick="safeCloseModal('paste-modal')">取消</button>
+                </div>
             </div>
         </div>
     </div>
-    <div id="loss-ai-modal" class="modal-overlay">
+    <div id="loss-ai-modal" class="modal-overlay" onclick="if(event.target===this) safeCloseModal('loss-ai-modal')">
         <div class="paste-box">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
                 <h3 style="color:var(--midea-dark); font-size:18px; font-weight:800; margin:0;"><i class="fa-solid fa-robot"></i> <span data-i18n="loss_ai_title">AI 智能识别 LOSS</span></h3>
@@ -572,7 +575,7 @@
             <div id="ai-result-content" class="ai-html-content" style="flex-grow:1; overflow-y:auto; padding: 20px; background: rgba(240,249,255,0.5); border-radius: 8px; border: 1px solid rgba(2,132,199,0.15);"></div>
         </div>
     </div>
-    <div id="kaizen-paste-modal" class="modal-overlay">
+    <div id="kaizen-paste-modal" class="modal-overlay" onclick="if(event.target===this) safeCloseModal('kaizen-paste-modal')">
         <div class="paste-box">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
                 <h3 style="color:var(--midea-dark); font-size:18px; font-weight:800; margin:0;"><i class="fa-solid fa-clipboard"></i> 少人化项目极速导入</h3>
@@ -1544,19 +1547,53 @@
         
         // ★ 全局triggerAutoSave：脚本块1需要在全局作用域定义此函数
         window.triggerAutoSave = function() {
-            // 1. 立即保存到 localStorage
-            try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){ console.error('localStorage 保存失败:', e); }
-            
-            // 2. 更新保存指示器
-            var _si = document.getElementById('save-indicator-text');
-            if(_si) _si.innerText = '已保存 at ' + new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-            
-            // 3. 云端同步（2s防抖）
-            if (isFirebaseReady) {
-                clearTimeout(cloudSaveTimeout);
-                cloudSaveTimeout = setTimeout(function() {
-                    saveToFirebase();
-                }, 2000);
+            try {
+                // 0. 确保数据结构完整
+                repairData();
+                
+                // 1. 立即保存到 localStorage（主备份）
+                localStorage.setItem(DB_KEY, JSON.stringify(db));
+                
+                // 2. 创建时间戳备份（防止数据丢失）
+                var timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                localStorage.setItem(DB_KEY + '_backup_' + timestamp, JSON.stringify(db));
+                
+                // 3. 清理旧的备份（保留最近5个）
+                var backupKeys = [];
+                for (var i = 0; i < localStorage.length; i++) {
+                    var key = localStorage.key(i);
+                    if (key.startsWith(DB_KEY + '_backup_')) {
+                        backupKeys.push(key);
+                    }
+                }
+                if (backupKeys.length > 5) {
+                    backupKeys.sort().slice(0, backupKeys.length - 5).forEach(function(key) {
+                        localStorage.removeItem(key);
+                    });
+                }
+                
+                // 4. 更新保存指示器
+                var _si = document.getElementById('save-indicator-text');
+                if(_si) _si.innerText = '已保存 at ' + new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+                
+                // 5. 云端同步（2s防抖）
+                if (isFirebaseReady) {
+                    clearTimeout(cloudSaveTimeout);
+                    cloudSaveTimeout = setTimeout(function() {
+                        saveToFirebase();
+                    }, 2000);
+                }
+                
+                console.log('数据已保存：', new Date().toLocaleTimeString());
+            } catch(e){ 
+                console.error('自动保存失败:', e); 
+                // 尝试最小化保存
+                try {
+                    var minimalData = JSON.stringify(db);
+                    localStorage.setItem(DB_KEY + '_emergency', minimalData);
+                } catch(e2) {
+                    console.error('紧急保存也失败:', e2);
+                }
             }
         };
         const PRO_ORDER = ['PRO1', 'PRO2', 'PRO3', 'PRO4', 'H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK']; 
@@ -1566,7 +1603,7 @@
         // ================= AI 极速引擎 (GLM-Z1-9B) =================
         const AI_URL = "https://api.siliconflow.cn/v1/chat/completions";
         const AI_MODEL = "THUDM/GLM-Z1-9B-0414";
-        const AI_KEY = "Bearer sk-pdmxRwJWkNKMXYEWjHUaSRxKkSfHqHqNQJyWJyH4lF"; 
+        const AI_KEY = "Bearer sk-pdmykhprsbiuskscwrnuwlhdvgfeomexwflenqbrfnvpwyqb"; 
         async function callAI_API(prompt, retryCount = 0) {
             try {
                 const res = await fetch(AI_URL, {
@@ -2851,6 +2888,56 @@
             db.prod[dateStr][ws].t = dT + nT;
             db.prod[dateStr][ws].o = dO + nO;
             triggerAutoSave();
+            renderInput(); // 立即刷新显示
+        };
+        
+        // 独立产线整线产出直接编辑（当班次数据不全时）
+        window.updateMotorTotal = function(ws, field, val) {
+            var dateStr = document.getElementById('globalDate').value;
+            if(!db.prod[dateStr]) db.prod[dateStr] = getEmptyDay();
+            if(!db.prod[dateStr][ws]) db.prod[dateStr][ws] = { t: 0, o: 0, h: 0, att: 0, head: 0, shifts: { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } } };
+            
+            db.prod[dateStr][ws][field] = safeNum(val);
+            
+            // 如果编辑的是目标(t)，按比例分配到班次（假设白班70%，夜班30%）
+            if (field === 't') {
+                var totalT = safeNum(val);
+                var dT = Math.round(totalT * 0.7); // 白班70%
+                var nT = totalT - dT; // 夜班30%
+                if(!db.prod[dateStr][ws].shifts) db.prod[dateStr][ws].shifts = { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } };
+                db.prod[dateStr][ws].shifts.D.t = dT;
+                db.prod[dateStr][ws].shifts.N.t = nT;
+            }
+            
+            // 如果编辑的是实际产出(o)，按比例分配到班次（根据已有班次比例或默认70%/30%）
+            if (field === 'o') {
+                var totalO = safeNum(val);
+                var dO = safeNum(db.prod[dateStr][ws].shifts?.D?.o) || 0;
+                var nO = safeNum(db.prod[dateStr][ws].shifts?.N?.o) || 0;
+                var totalShiftO = dO + nO;
+                
+                if (totalShiftO > 0) {
+                    // 如果班次已有数据，按比例调整
+                    var dRatio = dO / totalShiftO;
+                    var nRatio = nO / totalShiftO;
+                    db.prod[dateStr][ws].shifts.D.o = Math.round(totalO * dRatio);
+                    db.prod[dateStr][ws].shifts.N.o = totalO - Math.round(totalO * dRatio);
+                } else {
+                    // 如果班次没数据，默认分配
+                    var dO = Math.round(totalO * 0.7); // 白班70%
+                    var nO = totalO - dO; // 夜班30%
+                    if(!db.prod[dateStr][ws].shifts) db.prod[dateStr][ws].shifts = { D: { t: 0, o: 0 }, N: { t: 0, o: 0 } };
+                    db.prod[dateStr][ws].shifts.D.o = dO;
+                    db.prod[dateStr][ws].shifts.N.o = nO;
+                }
+            }
+            
+            triggerAutoSave();
+            // 同步到报表
+            if (typeof syncInputToProdReport === 'function') {
+                syncInputToProdReport(dateStr);
+            }
+            renderInput(); // 立即刷新显示
         };
         // FIXED: 重写班次编辑函数，确保多线体数据互不干扰
         window.updateShiftCell = function(lineName, shift, field, val) {
@@ -2976,8 +3063,8 @@
                 var displayName = NEW_MOTOR_NAMES[ws] || ws;
                 var lossVal = m.output < m.target ? (m.output - m.target) : 0;
                 var lossColor = lossVal < 0 ? 'val-danger' : '';
-                // 主行
-                htmlStr += '<tr class="row-parent"><td style="text-align:left; padding-left:15px; display:flex; align-items:center; height:36px; border-bottom: none;"><i class="fa-solid fa-circle" style="font-size:6px; color:var(--midea-blue); margin-right:8px;"></i><span style="font-weight:900;">'+displayName+'</span><span id="ach-'+ws+'" style="margin-left:6px;font-size:10px;font-weight:800;display:inline-flex;align-items:center;gap:2px;"></span></td><td><input type="number" id="inp_'+ws+'_t" value="'+(wData.t||0)+'" onchange="updateCell(\''+ws+'\', \'t\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_o" value="'+(wData.o||0)+'" onchange="updateCell(\''+ws+'\', \'o\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_h" value="'+(wData.h||0)+'" onchange="updateCell(\''+ws+'\', \'h\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_att" value="'+safeNum(wData.att)+'" onchange="updateCell(\''+ws+'\', \'att\', this.value); syncInputToProdReport()" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="number" id="inp_'+ws+'_head" value="'+safeNum(wData.head)+'" onchange="updateCell(\''+ws+'\', \'head\', this.value); syncInputToProdReport()" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="text" readonly value="'+m.upph+'" class="'+(m.upph>=23?'val-success':'val-danger')+'"></td><td><input type="text" readonly value="'+(lossVal===0?'0':lossVal)+'" class="'+lossColor+'"></td></tr>';
+                // 主行 - 使用updateMotorTotal直接编辑整条线产出
+                htmlStr += '<tr class="row-parent"><td style="text-align:left; padding-left:15px; display:flex; align-items:center; height:36px; border-bottom: none;"><i class="fa-solid fa-circle" style="font-size:6px; color:var(--midea-blue); margin-right:8px;"></i><span style="font-weight:900;">'+displayName+'</span><span id="ach-'+ws+'" style="margin-left:6px;font-size:10px;font-weight:800;display:inline-flex;align-items:center;gap:2px;"></span></td><td><input type="number" id="inp_'+ws+'_t" value="'+(wData.t||0)+'" onchange="updateMotorTotal(\''+ws+'\', \'t\', this.value); syncInputToProdReport()" title="直接编辑整条线目标产出"></td><td><input type="number" id="inp_'+ws+'_o" value="'+(wData.o||0)+'" onchange="updateMotorTotal(\''+ws+'\', \'o\', this.value); syncInputToProdReport()" title="直接编辑整条线实际产出"></td><td><input type="number" id="inp_'+ws+'_h" value="'+(wData.h||0)+'" onchange="updateCell(\''+ws+'\', \'h\', this.value); syncInputToProdReport()"></td><td><input type="number" id="inp_'+ws+'_att" value="'+safeNum(wData.att)+'" onchange="updateCell(\''+ws+'\', \'att\', this.value); syncInputToProdReport()" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="number" id="inp_'+ws+'_head" value="'+safeNum(wData.head)+'" onchange="updateCell(\''+ws+'\', \'head\', this.value); syncInputToProdReport()" style="color:var(--midea-blue); background:rgba(0,163,224,0.08);"></td><td><input type="text" readonly value="'+m.upph+'" class="'+(m.upph>=23?'val-success':'val-danger')+'"></td><td><input type="text" readonly value="'+(lossVal===0?'0':lossVal)+'" class="'+lossColor+'"></td></tr>';
                 // 白班行
                 htmlStr += '<tr style="background:rgba(245, 250, 255, 0.6);"><td style="text-align:left; padding-left:45px; color:var(--midea-blue); font-size:11px; font-weight:600; height:28px; border:none;">  └ 白班</td><td><input type="number" value="'+(dShift.t||0)+'" onchange="updateMotorShift(\''+ws+'\', \'D\', \'t\', this.value); syncInputToProdReport()" style="width:65px;padding:2px 4px;font-size:11px;"></td><td><input type="number" value="'+(dShift.o||0)+'" onchange="updateMotorShift(\''+ws+'\', \'D\', \'o\', this.value); syncInputToProdReport()" style="width:65px;padding:2px 4px;font-size:11px;" class="'+((dShift.o||0) >= (dShift.t||0) ? '' : 'val-danger-bg')+'"></td><td><span style="color:#94a3b8;font-size:10px;">-</span></td><td colspan="2"><span style="color:#94a3b8;font-size:10px;">-</span></td><td><span style="color:#94a3b8;font-size:10px;">-</span></td><td><input type="text" readonly value="'+(Number(dShift.o||0)-Number(dShift.t||0))+'" class="'+(Number(dShift.o||0) < Number(dShift.t||0) ? 'val-danger' : 'val-success')+'" style="font-size:11px;"></td></tr>';
                 // 夜班行
@@ -4267,10 +4354,82 @@
         
         // 安全关闭模态框（带数据保存）
         window.safeCloseModal = function(modalId) {
-            repairData();
-            triggerAutoSave();
-            document.getElementById(modalId).style.display = 'none';
+            try {
+                repairData();
+                triggerAutoSave();
+                var modal = document.getElementById(modalId);
+                if (modal) {
+                    // 方法1：设置display为none
+                    modal.style.display = 'none';
+                    // 方法2：设置visibility为hidden
+                    modal.style.visibility = 'hidden';
+                    // 方法3：设置opacity为0
+                    modal.style.opacity = '0';
+                    // 方法4：设置pointer-events为none
+                    modal.style.pointerEvents = 'none';
+                    // 方法5：设置z-index为负值
+                    modal.style.zIndex = '-1000';
+                    // 方法6：添加隐藏类
+                    modal.classList.add('hidden');
+                    
+                    console.log('成功关闭模态框:', modalId);
+                } else {
+                    console.warn('模态框不存在:', modalId);
+                }
+            } catch(e) {
+                console.error('关闭模态框时出错:', e);
+                // 如果上面方法都失败了，尝试移除元素
+                try {
+                    var modal = document.getElementById(modalId);
+                    if (modal && modal.parentNode) {
+                        modal.parentNode.removeChild(modal);
+                    }
+                } catch(e2) {
+                    console.error('移除模态框也失败:', e2);
+                    // 最后尝试：重新加载页面（极端情况）
+                    alert('模态框关闭失败，页面将刷新...');
+                    window.location.reload();
+                }
+            }
         };
+        
+        // 强制关闭所有模态框
+        window.forceCloseAllModals = function() {
+            var modals = document.querySelectorAll('.modal-overlay, .loss-link-modal');
+            modals.forEach(function(modal) {
+                modal.style.display = 'none';
+                modal.style.visibility = 'hidden';
+                modal.style.opacity = '0';
+                modal.style.pointerEvents = 'none';
+                modal.style.zIndex = '-1000';
+            });
+            console.log('强制关闭了', modals.length, '个模态框');
+            return modals.length;
+        };
+        
+        // ESC键关闭模态框
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape' || event.key === 'Esc') {
+                console.log('ESC键被按下，尝试关闭模态框');
+                var closed = forceCloseAllModals();
+                if (closed === 0) {
+                    console.log('没有打开的模态框');
+                }
+            }
+        });
+        
+        // 页面加载时检查是否有卡住的模态框
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                var visibleModals = document.querySelectorAll('.modal-overlay[style*="display: flex"], .modal-overlay[style*="display:block"], .modal-overlay:not([style*="display:none"])');
+                if (visibleModals.length > 0) {
+                    console.warn('检测到', visibleModals.length, '个可能卡住的模态框');
+                    visibleModals.forEach(function(modal) {
+                        console.log('卡住模态框:', modal.id || '无ID');
+                    });
+                }
+            }, 1000);
+        });
         
         // 安全关闭设置面板
         window.closeSettings = function() {
