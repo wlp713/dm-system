@@ -1561,8 +1561,8 @@
         };
         const PRO_ORDER = ['PRO1', 'PRO2', 'PRO3', 'PRO4', 'H_MOTOR', 'F_MOTOR', 'S_MOTOR', 'CRANK']; 
         const NEW_MOTOR_NAMES = { 'H_MOTOR': 'H电机线产出', 'F_MOTOR': 'F电机线产出', 'S_MOTOR': 'S系列电机线产出', 'CRANK': '曲轴线产出' };
-        // 按照用户历史指令：加入 IP 与 QA 作为独立部门
-        const DEPTS = ['PRO1', 'PRO2', 'PRO3', 'PRO4', 'PE', 'HR', 'R&D', 'PC', 'IP', 'QA'];
+        // 按照用户历史指令：加入 IP 与 QA 作为独立部门，以及 Pro.1-Pro.6
+        const DEPTS = ['Pro.1', 'Pro.2', 'Pro.3', 'Pro.4', 'Pro.5', 'Pro.6', 'PE', 'HR', 'R&D', 'PC', 'IP', 'QA'];
         // ================= AI 极速引擎 (Gemini 2.5 Flash-Lite) =================
         const AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
         const AI_MODEL = "gemini-2.5-flash-lite";
@@ -1982,12 +1982,23 @@
             // ========== 显式部门识别（文本中直接出现的部门名称） ==========
             function identifyExplicitDept(text) {
                 const upperText = text.toUpperCase();
-                // 直接匹配部门代码
-                const deptCodes = ['PE', 'HR', 'PC', 'QA', 'R&D', 'IP', 'PRO1', 'PRO2', 'PRO3', 'PRO4'];
-                for (const code of deptCodes) {
-                    // 确保是独立的部门代码（不是单词的一部分）
-                    const regex = new RegExp('\\b' + code + '\\b', 'i');
-                    if (regex.test(upperText)) {
+                // 直接匹配部门代码（包括 Pro.1-Pro.6 格式）
+                const deptPatterns = [
+                    { pattern: /\bPro\.?1\b/i, code: 'Pro.1' },
+                    { pattern: /\bPro\.?2\b/i, code: 'Pro.2' },
+                    { pattern: /\bPro\.?3\b/i, code: 'Pro.3' },
+                    { pattern: /\bPro\.?4\b/i, code: 'Pro.4' },
+                    { pattern: /\bPro\.?5\b/i, code: 'Pro.5' },
+                    { pattern: /\bPro\.?6\b/i, code: 'Pro.6' },
+                    { pattern: /\bPE\b/i, code: 'PE' },
+                    { pattern: /\bHR\b/i, code: 'HR' },
+                    { pattern: /\bPC\b/i, code: 'PC' },
+                    { pattern: /\bQA\b/i, code: 'QA' },
+                    { pattern: /\bR&D\b/i, code: 'R&D' },
+                    { pattern: /\bIP\b/i, code: 'IP' }
+                ];
+                for (const { pattern, code } of deptPatterns) {
+                    if (pattern.test(text)) {
                         return code;
                     }
                 }
@@ -2016,26 +2027,23 @@
                 // 5. 识别负责人
                 const owner = identifyOwner(line);
                 
-                // 6. 识别数量
+                // 6. 识别数量（最后面的数字）
                 const qty = identifyQty(line);
                 
-                // 7. 提取描述（移除已识别的部分）
+                // 7. 提取描述（按顺序移除已识别的部分）
                 let desc = line;
                 // 移除日期
                 desc = desc.replace(/\d{1,2}\/\d{1,2}\/\d{4}/g, '').replace(/\d{4}-\d{2}-\d{2}/g, '').replace(/\d{4}\/\d{2}\/\d{2}/g, '');
                 // 移除班次关键词
                 desc = desc.replace(/\b(Day|Night|D|N|日班|夜班|白班|晚班|กลางวัน|ดึก|กลางคืน|dayshift|nightshift)\b/gi, '');
-                // 移除线体
-                desc = desc.replace(/LINE\s*[A-Da-d]/gi, '').replace(/ไลน์\s*[A-Da-d]/gi, '').replace(/[A-Da-d]线/g, '').replace(/线体[A-Da-d]/g, '');
+                // 移除线体（单独的字母A-D）
+                desc = desc.replace(/\s([A-Da-d])\s/g, ' ');
                 // 移除负责人
                 desc = desc.replace(/Mr\.?\s*[A-Za-z]+/gi, '').replace(/(นาย|คุณ)\s*[\u0E00-\u0E7F]+/g, '');
-                // 移除显式部门
-                desc = desc.replace(/\b(PE|HR|PC|QA|R&D|IP|PRO1|PRO2|PRO3|PRO4)\b/gi, '');
-                // 移除数量（最后一个数字）
-                const numMatch = desc.match(/-?\d{1,6}/);
-                if (numMatch) {
-                    desc = desc.replace(numMatch[0], '');
-                }
+                // 移除部门代码（包括 Pro.1-Pro.6 格式）
+                desc = desc.replace(/\b(Pro\.?[1-6]|PE|HR|PC|QA|R&D|IP)\b/gi, '');
+                // 移除最后的数字（LOSS数量）
+                desc = desc.replace(/\s-?\d{1,6}\s*$/g, '');
                 // 清理多余空格和标点
                 desc = desc.replace(/\s+/g, ' ').replace(/^[,;\-:\s]+|[,;\-:\s]+$/g, '').trim();
                 
