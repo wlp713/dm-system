@@ -907,6 +907,25 @@
                                 <div class="sys-chip"><span class="sys-chip-label">DM开展率</span><b id="sys-post-dm">--</b></div>
                                 <div class="sys-chip"><span class="sys-chip-label">改善提案</span><b id="sys-post-kaizen">--</b></div>
                             </div>
+                        </div>
+                        <div class="sys-box" onclick="window.openSysDetail('equipment')">
+                            <h4><i class="fa-solid fa-screwdriver-wrench" style="color:var(--midea-blue);"></i> 每日设备点检</h4>
+                            <div class="sys-compact-strip">
+                                <div class="sys-chip"><span class="sys-chip-label">本周点检率</span><b id="sys-equip-week">--</b></div>
+                                <div class="sys-chip"><span class="sys-chip-label">本月点检率</span><b id="sys-equip-month">--</b></div>
+                                <div class="sys-chip"><span class="sys-chip-label">异常设备</span><b id="sys-equip-fault">--台</b></div>
+                                <div class="sys-chip"><span class="sys-chip-label">今日打卡</span><b id="sys-equip-today">--</b></div>
+                            </div>
+                            <div class="sys-progress-wrap">
+                                <div class="sys-progress-label">设备完好率</div>
+                                <div class="sys-progress-track"><div class="sys-progress-bar" id="sys-equip-bar" style="width:0%; background:var(--midea-blue);"></div></div>
+                                <span class="sys-progress-num" id="sys-equip-pct">0%</span>
+                            </div>
+                            <div class="sys-box-footer">
+                                <span><i class="fa-solid fa-camera"></i> 图片记录 <b id="sys-equip-photos">0</b></span>
+                                <span><i class="fa-solid fa-clipboard-check"></i> 点检项 <b id="sys-equip-count">0</b></span>
+                            </div>
+                        </div>
                             <div class="sys-progress-wrap">
                                 <div class="sys-progress-label">事后综合得分</div>
                                 <div class="sys-progress-track"><div class="sys-progress-bar" id="sys-post-bar" style="width:0%; background:var(--success);"></div></div>
@@ -2137,9 +2156,10 @@
         function ensureSysData(date) {
             if(!db.sqdip[date]) db.sqdip[date] = { s: 100, q: 99.5, d: 100, i: 98, p: 95 };
             if(!db.sysOps[date]) db.sysOps[date] = { m4: 100, insp: 100, andon: 5, memo: '', locked: false };
-            if(!db.sysDetail) db.sysDetail = { pre: [], mid: [] };
+            if(!db.sysDetail) db.sysDetail = { pre: [], mid: [], equipment: [] };
             if(!db.sysDetail.pre) db.sysDetail.pre = [];
             if(!db.sysDetail.mid) db.sysDetail.mid = [];
+            if(!db.sysDetail.equipment) db.sysDetail.equipment = [];
         }
         window.updateSQDIP = function() {
             let date = document.getElementById('globalDate').value;
@@ -2274,7 +2294,8 @@
         const SYS_DETAIL_META = {
             pre: { title: '事前：开班准备确认明细', icon: 'fa-hourglass-start' },
             mid: { title: '事中：Andon响应与巡检记录明细', icon: 'fa-gauge-high' },
-            post: { title: '事后：闭环与复发复盘', icon: 'fa-flag-checkered' }
+            post: { title: '事后：闭环与复发复盘', icon: 'fa-flag-checkered' },
+            equipment: { title: '每日设备点检记录', icon: 'fa-screwdriver-wrench' }
         };
         window.openSysDetail = function(type) {
             currentSysDetailType = type;
@@ -2299,11 +2320,28 @@
         }
         window.addSysRecord = function() {
             if (currentSysDetailType === 'post') return showToast('fa-solid fa-info-circle', '事后指标由 PSP/LOSS 自动汇总，可使用 AI 识别重复LOSS');
-            const today = document.getElementById('globalDate').value;
-            const base = currentSysDetailType === 'pre'
-                ? { id: Date.now()+Math.random(), date: today, ws:'PRO2', ownerDept:'PRO2', line:'LINE A', item:'关键设备点检', equipment:'焊接/测试关键设备', issue:'', resp:'', status:'已完成' }
-                : { id: Date.now()+Math.random(), date: today, ws:'PRO2', line:'LINE A', event:'Andon异常响应', responseMin:5, waitMin:0, impactQty:0, patrol:'现场巡检OK', action:'', resp:'', status:'已关闭' };
-            db.sysDetail[currentSysDetailType].unshift(base);
+            if (currentSysDetailType === 'equipment') {
+                const today = document.getElementById('globalDate').value;
+                const base = { 
+                    id: Date.now()+Math.random(), 
+                    date: today, 
+                    ws:'PRO2', 
+                    equipmentId:'EQ-001', 
+                    equipmentName:'焊接设备', 
+                    item:'设备点检', 
+                    status:'正常', 
+                    photo:'', 
+                    checker:'', 
+                    notes:'' 
+                };
+                db.sysDetail[currentSysDetailType].unshift(base);
+            } else {
+                const today = document.getElementById('globalDate').value;
+                const base = currentSysDetailType === 'pre'
+                    ? { id: Date.now()+Math.random(), date: today, ws:'PRO2', ownerDept:'PRO2', line:'LINE A', item:'关键设备点检', equipment:'焊接/测试关键设备', issue:'', resp:'', status:'已完成' }
+                    : { id: Date.now()+Math.random(), date: today, ws:'PRO2', line:'LINE A', event:'Andon异常响应', responseMin:5, waitMin:0, impactQty:0, patrol:'现场巡检OK', action:'', resp:'', status:'已关闭' };
+                db.sysDetail[currentSysDetailType].unshift(base);
+            }
             triggerAutoSave(); renderSysDetail(); renderSysOps();
         };
         window.updateSysRecord = function(id, field, value) {
@@ -2342,6 +2380,94 @@
                 ].join('') || `<tr><td colspan="7">本月暂无事后数据</td></tr>`;
                 return;
             }
+            
+            if (currentSysDetailType === 'equipment') {
+                // 设备点检特殊工具栏
+                const toolbar = document.querySelector('.sys-detail-toolbar');
+                if (toolbar) {
+                    toolbar.innerHTML = `
+                        <span style="font-weight:900;color:var(--text-muted);">日期筛选</span>
+                        <input type="date" id="equip-date-filter" class="btn" value="${document.getElementById('globalDate').value}" onchange="renderEquipmentTable()">
+                        <span style="font-weight:900;color:var(--text-muted);">车间</span>
+                        <select id="equip-ws-filter" class="btn" onchange="renderEquipmentTable()">
+                            <option value="">全部车间</option>
+                            <option value="PRO1">PRO1</option>
+                            <option value="PRO2">PRO2</option>
+                            <option value="PRO3">PRO3</option>
+                            <option value="PRO4">PRO4</option>
+                        </select>
+                        <span style="font-weight:900;color:var(--text-muted);">设备状态</span>
+                        <select id="equip-status-filter" class="btn" onchange="renderEquipmentTable()">
+                            <option value="">全部状态</option>
+                            <option value="正常">正常</option>
+                            <option value="异常">异常</option>
+                            <option value="未点检">未点检</option>
+                        </select>
+                        <button class="btn btn-small" onclick="showPhotoUploadModal()"><i class="fa-solid fa-camera"></i> 图片上传</button>
+                        <span style="font-size:12px;color:var(--text-muted);font-weight:800;">支持拖拽、复制粘贴图片，最大2MB</span>
+                    `;
+                }
+                
+                head.innerHTML = `
+                    <tr>
+                        <th><input type="checkbox" id="equip-select-all" onchange="toggleSelectAllEquipments()" title="全选"></th>
+                        <th>日期 <input type="text" class="table-filter" data-column="0" placeholder="筛选日期" onkeyup="filterEquipmentTable()"></th>
+                        <th>车间 <input type="text" class="table-filter" data-column="1" placeholder="筛选车间" onkeyup="filterEquipmentTable()"></th>
+                        <th>设备编号 <input type="text" class="table-filter" data-column="2" placeholder="筛选编号" onkeyup="filterEquipmentTable()"></th>
+                        <th>设备名称 <input type="text" class="table-filter" data-column="3" placeholder="筛选名称" onkeyup="filterEquipmentTable()"></th>
+                        <th>点检项目 <input type="text" class="table-filter" data-column="4" placeholder="筛选项目" onkeyup="filterEquipmentTable()"></th>
+                        <th>状态 <input type="text" class="table-filter" data-column="5" placeholder="筛选状态" onkeyup="filterEquipmentTable()"></th>
+                        <th>图片记录</th>
+                        <th>点检人 <input type="text" class="table-filter" data-column="7" placeholder="筛选点检人" onkeyup="filterEquipmentTable()"></th>
+                        <th>操作</th>
+                    </tr>
+                `;
+                
+                renderEquipmentTable();
+                return;
+            }
+                
+                // 计算点检率
+                const today = document.getElementById('globalDate').value;
+                const todayRows = rows.filter(r => r.date === today);
+                const weekRows = rows.filter(r => {
+                    const rowDate = new Date(r.date);
+                    const todayDate = new Date(today);
+                    const diffTime = Math.abs(todayDate - rowDate);
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    return diffDays <= 7;
+                });
+                const monthRows = rows.filter(r => r.date.startsWith(month));
+                
+                // 更新统计
+                document.getElementById('sys-detail-count').innerText = monthRows.length;
+                document.getElementById('sys-detail-rate').innerText = monthRows.length > 0 ? '100%' : '0%';
+                document.getElementById('sys-detail-risk').innerText = rows.filter(r => r.status === '异常').length;
+                
+                // 渲染表格
+                body.innerHTML = rows.length ? rows.map(r => {
+                    const photoPreview = r.photo ? 
+                        `<a href="#" onclick="showPhotoPreview('${r.photo}')" style="color:var(--midea-blue); text-decoration:none;">
+                            <i class="fa-solid fa-image"></i> 查看
+                        </a>` : 
+                        '<span style="color:var(--text-muted);">无</span>';
+                    
+                    return `<tr>
+                        <td>${r.date}</td>
+                        <td>${r.ws || '-'}</td>
+                        <td>${r.equipmentId || '-'}</td>
+                        <td>${r.equipmentName || '-'}</td>
+                        <td style="text-align:left">${r.item || '-'}</td>
+                        <td class="${r.status === '正常' ? 'val-success' : 'val-danger'}">${r.status || '未点检'}</td>
+                        <td>${photoPreview}</td>
+                        <td>${r.checker || '-'}</td>
+                        <td><button class="btn-icon" onclick="deleteEquipmentRecord('${r.date}', '${r.equipmentId}', '${r.item}')"><i class="fa-solid fa-trash"></i></button></td>
+                    </tr>`;
+                }).join('') : `<tr><td colspan="9">本月暂无设备点检记录</td></tr>`;
+                
+                return;
+            }
+            
             const rows = sysDetailRows().filter(r => String(r.date || '').startsWith(month) && (!ownerFilter || r.ws === ownerFilter || r.ownerDept === ownerFilter));
             document.getElementById('sys-detail-count').innerText = rows.length;
             if (currentSysDetailType === 'pre') {
@@ -2835,20 +2961,29 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (总损失: ${data.qty}�
             if(!db.loss) db.loss = []; 
             if(!db.sqdip) db.sqdip = {}; 
             if(!db.sysOps) db.sysOps = {}; 
-            if(!db.sysDetail) db.sysDetail = { pre: [], mid: [] };
+            if(!db.sysDetail) db.sysDetail = { pre: [], mid: [], equipment: [] };
             if(!db.sysDetail.pre) db.sysDetail.pre = [];
             if(!db.sysDetail.mid) db.sysDetail.mid = [];
+            if(!db.sysDetail.equipment) db.sysDetail.equipment = [];
             if(!db.kaizen) db.kaizen = [];
             if(!db.problems) db.problems = [];
             if(!db.defaultTargets) db.defaultTargets = getEmptyDefaultTargets();
             if(!db.targetSettings) db.targetSettings = { workshops: {}, otherLines: {} };
+            
+            // 确保每个车间都有dLinesConfig
+            ['PRO1', 'PRO3', 'PRO4'].forEach(ws => {
+                if(!db.dLinesConfig[ws]) db.dLinesConfig[ws] = [];
+                if(!Array.isArray(db.dLinesConfig[ws])) db.dLinesConfig[ws] = [];
+            });
             for(let d in db.prod) { 
                 if (!d || d === "undefined") continue;
                 if (!db.prod[d]) { delete db.prod[d]; continue; }
                 ['PRO1', 'PRO3', 'PRO4'].forEach(ws => { 
                     if(!db.prod[d][ws]) db.prod[d][ws] = {t:0,o:0,h:0,att:0,head:0,dLines:[]};
                     if(!db.prod[d][ws].dLines) db.prod[d][ws].dLines = []; 
-                    db.dLinesConfig[ws].forEach(gLine => { if(!db.prod[d][ws].dLines.find(l => l.id === gLine.id)) db.prod[d][ws].dLines.push({ id: gLine.id, name: gLine.name, t:0, o:0, h:0, att:0, head:0 }); });
+                    if(db.dLinesConfig && db.dLinesConfig[ws] && Array.isArray(db.dLinesConfig[ws])) {
+                        db.dLinesConfig[ws].forEach(gLine => { if(!db.prod[d][ws].dLines.find(l => l.id === gLine.id)) db.prod[d][ws].dLines.push({ id: gLine.id, name: gLine.name, t:0, o:0, h:0, att:0, head:0 }); });
+                    }
                 }); 
                 if (!db.prod[d]['PRO2']) db.prod[d]['PRO2'] = {t:0,o:0,h:0,att:0,head:0,lines:{}};
                 if (!db.prod[d]['PRO2'].lines || Object.keys(db.prod[d]['PRO2'].lines).length === 0) {
@@ -3901,7 +4036,7 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (总损失: ${data.qty}�
             var dailySorted = rows.map(function(r, i) { return { idx: i, rate: r.rate }; }).filter(function(r) { return r.rate > 0; }).sort(function(a, b) { return b.rate - a.rate; });
             dailySorted.forEach(function(r, pos) { rows[r.idx].rank = pos + 1; });
             // Monthly rank
-            var monthlySorted = rows.map(function(r, i) { return { idx: i, rate: r.mRate }; }).filter(function(r) { return r.rate > 0; }).sort(function(a, b) { return b.rate - a.rate; });
+            var monthlySorted = rows.map(function(r, i) { return { idx: i, rate: safeNum(r.mRate) }; }).filter(function(r) { return r.rate > 0; }).sort(function(a, b) { return b.rate - a.rate; });
             monthlySorted.forEach(function(r, pos) { rows[r.idx].mRank = pos + 1; });
         }
         function recalcShiftTotal() {
@@ -4052,7 +4187,7 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (总损失: ${data.qty}�
                     '<td' + (lineBg ? ' style="background:' + lineBg + '"' : '') + '>' + dailyRankSpan + '</td>' +
                     '<td' + (lineBg ? ' style="background:' + lineBg + '"' : '') + '><input type="number" value="' + (r.mTarget || 0) + '" onchange="updateShiftField(' + idx + ',\'mTarget\',this.value)"></td>' +
                     '<td' + (lineBg ? ' style="background:' + lineBg + '"' : '') + '><input type="number" value="' + (r.mActual || 0) + '" onchange="updateShiftField(' + idx + ',\'mActual\',this.value)"></td>' +
-                    '<td' + (lineBg ? ' style="background:' + lineBg + '"' : '') + '><span class="prod-field">' + (r.mRate ? r.mRate.toFixed(2) + '%' : '0.00%') + '</span></td>' +
+                    '<td' + (lineBg ? ' style="background:' + lineBg + '"' : '') + '><span class="prod-field">' + (typeof r.mRate === 'number' ? r.mRate.toFixed(2) + '%' : '0.00%') + '</span></td>' +
                     '<td' + (lineBg ? ' style="background:' + lineBg + '"' : '') + '>' + monthlyRankSpan + '</td>' +
                     '<td style="width:25px; min-width:25px; padding:0;"><button class="prod-del-btn" onclick="deleteProdShift(' + idx + ')" title="Delete"><i class="fa-solid fa-trash-can"></i></button></td>' +
                     '</tr>';
@@ -4672,13 +4807,13 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (总损失: ${data.qty}�
             allWs.forEach(function(ws) { ds[ws] = []; });
             dates.forEach(function(d) { 
                 allWs.forEach(function(ws) { 
-                    let m = calcWsData(d, ws); 
+                    let m = calcWsData(d, ws) || {}; 
                     let val = 0; 
-                    if(metric==='upph') val = m.upph; 
-                    else if(metric==='o') val = m.output; 
-                    else if(metric==='h') val = m.hours; 
-                    else if(metric==='loss') val = m.loss; 
-                    else if(metric==='attRate') val = m.head>0 ? parseFloat((m.att/m.head*100).toFixed(1)) : 0; 
+                    if(metric==='upph') val = m.upph || 0; 
+                    else if(metric==='o') val = m.output || 0; 
+                    else if(metric==='h') val = m.hours || 0; 
+                    else if(metric==='loss') val = m.loss || 0; 
+                    else if(metric==='attRate') val = m.head>0 ? parseFloat(((m.att || 0)/(m.head || 1)*100).toFixed(1)) : 0; 
                     else if(metric==='head') val = m.head; 
                     ds[ws].push(val === 0 ? null : val); 
                 }); 
@@ -4741,7 +4876,7 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (总损失: ${data.qty}�
             document.getElementById('r-period').innerText = type==='day'?dateVal:(type==='month'?dateVal.substring(0,7)+` ${t('opt_month')}`:`${t('opt_7d')}`);
             let totalO=0, totalH=0, totalL=0; let totalAtt=0, totalHead=0;
             let wsAgg = { 'PRO1':{o:0,t:0,h:0,att:0,head:0}, 'PRO2':{o:0,t:0,h:0,att:0,head:0}, 'PRO3':{o:0,t:0,h:0,att:0,head:0}, 'PRO4':{o:0,t:0,h:0,att:0,head:0} };
-            dates.forEach(d => { PRO_ORDER.forEach(ws => { let m = calcWsData(d, ws); if(ws === 'PRO2') { totalO+=m.output; totalH+=m.hours; totalL+=m.loss; } totalAtt+=m.att; totalHead+=m.head; wsAgg[ws].o+=m.output; wsAgg[ws].t+=m.target; wsAgg[ws].h+=m.hours; wsAgg[ws].att+=m.att; wsAgg[ws].head+=m.head; }); });
+            dates.forEach(d => { PRO_ORDER.forEach(ws => { let m = calcWsData(d, ws); if(m) { if(ws === 'PRO2') { totalO+=m.output || 0; totalH+=m.hours || 0; totalL+=m.loss || 0; } totalAtt+=m.att || 0; totalHead+=m.head || 0; wsAgg[ws].o+=m.output || 0; wsAgg[ws].t+=m.target || 0; wsAgg[ws].h+=m.hours || 0; wsAgg[ws].att+=m.att || 0; wsAgg[ws].head+=m.head || 0; } }); });
             let avgUpph = totalH > 0 ? (totalO / totalH).toFixed(2) : '0.00'; let avgAttRate = totalHead > 0 ? (totalAtt / totalHead * 100).toFixed(1) : '0.0';
             let dmTotal=0, dmAct=0; let dmWs = {'PRO1':{t:0,a:0}, 'PRO2':{t:0,a:0}, 'PRO3':{t:0,a:0}, 'PRO4':{t:0,a:0}, 'H_MOTOR':{t:0,a:0}, 'F_MOTOR':{t:0,a:0}, 'S_MOTOR':{t:0,a:0}, 'CRANK':{t:0,a:0}};
             dates.forEach(d => { if(db.dm[d]) { PRO_ORDER.forEach(ws => { if(db.dm[d][ws]) { dmTotal+=2; dmAct+=(db.dm[d][ws].am+db.dm[d][ws].pm); dmWs[ws].t+=2; dmWs[ws].a+=(db.dm[d][ws].am+db.dm[d][ws].pm); }}); }});
@@ -6390,6 +6525,354 @@ ${lineRanking.map(([line, data], i) => `${i+1}. ${line} (总损失: ${data.qty}�
         api.init = async function(){ try { await init(); } catch(e) { console.error('SQDIP init failed', e); } };
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', api.init, { once: true }); else api.init();
     })();
+    
+    // ================= 设备点检功能 =================
+    
+    function renderEquipmentTable() {
+        const month = document.getElementById('sys-detail-month') ? document.getElementById('sys-detail-month').value : document.getElementById('globalDate').value.substring(0, 7);
+        const dateFilter = document.getElementById('equip-date-filter') ? document.getElementById('equip-date-filter').value : '';
+        const wsFilter = document.getElementById('equip-ws-filter') ? document.getElementById('equip-ws-filter').value : '';
+        const statusFilter = document.getElementById('equip-status-filter') ? document.getElementById('equip-status-filter').value : '';
+        
+        let rows = (window.db && window.db.sysDetail && window.db.sysDetail.equipment) ? window.db.sysDetail.equipment : [];
+        
+        // 应用筛选
+        if (dateFilter) {
+            rows = rows.filter(r => r.date === dateFilter);
+        } else {
+            rows = rows.filter(r => String(r.date || '').startsWith(month));
+        }
+        
+        if (wsFilter) {
+            rows = rows.filter(r => r.ws === wsFilter);
+        }
+        
+        if (statusFilter) {
+            rows = rows.filter(r => r.status === statusFilter);
+        }
+        
+        const body = document.getElementById('sys-detail-body');
+        if (!body) return;
+        
+        // 计算统计
+        const total = rows.length;
+        const normal = rows.filter(r => r.status === '正常').length;
+        const abnormal = rows.filter(r => r.status === '异常').length;
+        const checked = rows.filter(r => r.status !== '未点检').length;
+        const checkRate = total > 0 ? (checked / total * 100).toFixed(1) : '0.0';
+        
+        // 更新KPI
+        const countEl = document.getElementById('sys-detail-count');
+        const rateEl = document.getElementById('sys-detail-rate');
+        const riskEl = document.getElementById('sys-detail-risk');
+        if (countEl) countEl.innerText = total;
+        if (rateEl) rateEl.innerText = checkRate + '%';
+        if (riskEl) riskEl.innerText = abnormal;
+        
+        // 渲染表格
+        body.innerHTML = rows.length ? rows.map((r, index) => {
+            const photoPreview = r.photo ? 
+                `<a href="#" onclick="showEquipmentPhotoPreview('${r.photo}', '${r.equipmentName || "设备"}')" style="color:var(--midea-blue); text-decoration:none;" title="点击预览图片">
+                    <i class="fa-solid fa-image"></i> 已上传
+                </a>` : 
+                `<button class="btn-icon-small" onclick="uploadEquipmentPhoto(${index})" title="上传图片">
+                    <i class="fa-solid fa-upload"></i> 上传
+                </button>`;
+            
+            return `<tr>
+                <td><input type="checkbox" class="equip-select" data-index="${index}"></td>
+                <td><input type="date" value="${r.date || ''}" onchange="updateEquipmentField(${index}, 'date', this.value)" style="width:120px;"></td>
+                <td>
+                    <select onchange="updateEquipmentField(${index}, 'ws', this.value)" style="width:100px;">
+                        <option value="PRO1" ${r.ws === 'PRO1' ? 'selected' : ''}>PRO1</option>
+                        <option value="PRO2" ${r.ws === 'PRO2' ? 'selected' : ''}>PRO2</option>
+                        <option value="PRO3" ${r.ws === 'PRO3' ? 'selected' : ''}>PRO3</option>
+                        <option value="PRO4" ${r.ws === 'PRO4' ? 'selected' : ''}>PRO4</option>
+                    </select>
+                </td>
+                <td><input type="text" value="${r.equipmentId || ''}" onchange="updateEquipmentField(${index}, 'equipmentId', this.value)" placeholder="EQ-001" style="width:100px;"></td>
+                <td><input type="text" value="${r.equipmentName || ''}" onchange="updateEquipmentField(${index}, 'equipmentName', this.value)" placeholder="设备名称" style="width:120px;"></td>
+                <td><input type="text" value="${r.item || ''}" onchange="updateEquipmentField(${index}, 'item', this.value)" placeholder="点检项目" style="width:150px;"></td>
+                <td>
+                    <select onchange="updateEquipmentField(${index}, 'status', this.value)" style="width:80px;">
+                        <option value="正常" ${r.status === '正常' ? 'selected' : ''}>正常</option>
+                        <option value="异常" ${r.status === '异常' ? 'selected' : ''}>异常</option>
+                        <option value="未点检" ${r.status === '未点检' ? 'selected' : ''}>未点检</option>
+                    </select>
+                </td>
+                <td>${photoPreview}</td>
+                <td><input type="text" value="${r.checker || ''}" onchange="updateEquipmentField(${index}, 'checker', this.value)" placeholder="点检人" style="width:100px;"></td>
+                <td>
+                    <button class="btn-icon" onclick="deleteEquipmentRecord(${index})" title="删除"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            </tr>`;
+        }).join('') : `<tr><td colspan="10">暂无设备点检记录</td></tr>`;
+    }
+    
+    function filterEquipmentTable() {
+        const filters = document.querySelectorAll('.table-filter');
+        const rows = document.querySelectorAll('#sys-detail-body tr');
+        
+        rows.forEach(row => {
+            let visible = true;
+            const cells = row.querySelectorAll('td');
+            
+            filters.forEach(filter => {
+                const colIndex = parseInt(filter.getAttribute('data-column'));
+                const filterValue = filter.value.toLowerCase();
+                
+                if (filterValue && cells[colIndex]) {
+                    const cellText = cells[colIndex].textContent.toLowerCase();
+                    if (!cellText.includes(filterValue)) {
+                        visible = false;
+                    }
+                }
+            });
+            
+            row.style.display = visible ? '' : 'none';
+        });
+    }
+    
+    function toggleSelectAllEquipments() {
+        const selectAll = document.getElementById('equip-select-all');
+        const checkboxes = document.querySelectorAll('.equip-select');
+        checkboxes.forEach(cb => {
+            cb.checked = selectAll.checked;
+        });
+    }
+    
+    function updateEquipmentField(index, field, value) {
+        if (window.db && window.db.sysDetail && window.db.sysDetail.equipment && window.db.sysDetail.equipment[index]) {
+            window.db.sysDetail.equipment[index][field] = value;
+            if (window.triggerAutoSave) window.triggerAutoSave();
+        }
+    }
+    
+    function deleteEquipmentRecord(index) {
+        if (confirm('确定删除这条设备点检记录吗？')) {
+            if (window.db && window.db.sysDetail && window.db.sysDetail.equipment && window.db.sysDetail.equipment[index]) {
+                window.db.sysDetail.equipment.splice(index, 1);
+                if (window.triggerAutoSave) window.triggerAutoSave();
+                renderEquipmentTable();
+            }
+        }
+    }
+    
+    function uploadEquipmentPhoto(index) {
+        window.currentEquipmentPhotoIndex = index;
+        
+        // 创建图片上传模态框
+        const modal = document.createElement('div');
+        modal.id = 'photo-upload-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        `;
+        
+        modal.innerHTML = `
+            <div style="background: white; padding: 20px; border-radius: 8px; width: 400px; max-width: 90%;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">上传设备点检图片</h3>
+                    <button onclick="document.getElementById('photo-upload-modal').remove()" style="background: none; border: none; font-size: 20px; cursor: pointer;">×</button>
+                </div>
+                <div style="border: 2px dashed #ccc; padding: 30px; text-align: center; margin-bottom: 15px;" 
+                     id="photo-drop-zone" 
+                     ondrop="handlePhotoDrop(event)" 
+                     ondragover="handleDragOver(event)">
+                    <i class="fa-solid fa-cloud-upload-alt" style="font-size: 48px; color: #666; margin-bottom: 10px;"></i>
+                    <p style="margin: 0;">拖拽图片到这里，或点击选择文件</p>
+                    <p style="margin: 5px 0 0 0; font-size: 12px; color: #999;">支持 JPG、PNG 格式，最大 2MB</p>
+                </div>
+                <input type="file" id="photo-file-input" accept="image/*" style="display: none;" onchange="handlePhotoFileSelect(event)">
+                <button class="btn btn-primary" onclick="document.getElementById('photo-file-input').click()" style="width: 100%; margin-bottom: 10px;">
+                    <i class="fa-solid fa-folder-open"></i> 选择图片文件
+                </button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn" onclick="pastePhotoFromClipboard()" style="flex: 1;">
+                        <i class="fa-solid fa-paste"></i> 粘贴剪贴板图片
+                    </button>
+                    <button class="btn btn-danger" onclick="document.getElementById('photo-upload-modal').remove()" style="flex: 1;">
+                        取消
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+    }
+    
+    function handleDragOver(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'copy';
+        const dropZone = document.getElementById('photo-drop-zone');
+        if (dropZone) dropZone.style.borderColor = 'var(--midea-blue)';
+    }
+    
+    function handlePhotoDrop(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const dropZone = document.getElementById('photo-drop-zone');
+        if (dropZone) dropZone.style.borderColor = '#ccc';
+        
+        const files = event.dataTransfer.files;
+        if (files.length > 0) {
+            processPhotoFile(files[0]);
+        }
+    }
+    
+    function handlePhotoFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            processPhotoFile(file);
+        }
+    }
+    
+    function pastePhotoFromClipboard() {
+        navigator.clipboard.read().then(items => {
+            for (const item of items) {
+                if (item.types.includes('image/png') || item.types.includes('image/jpeg')) {
+                    item.getType('image/png').then(blob => {
+                        processPhotoBlob(blob);
+                    });
+                    break;
+                }
+            }
+        }).catch(err => {
+            alert('无法读取剪贴板，请确保已复制图片：' + err.message);
+        });
+    }
+    
+    function processPhotoFile(file) {
+        // 检查文件大小（限制2MB）
+        if (file.size > 2 * 1024 * 1024) {
+            alert('图片大小不能超过2MB');
+            return;
+        }
+        
+        // 检查文件类型
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件（JPG、PNG格式）');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            saveEquipmentPhoto(e.target.result);
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    function processPhotoBlob(blob) {
+        if (blob.size > 2 * 1024 * 1024) {
+            alert('图片大小不能超过2MB');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            saveEquipmentPhoto(e.target.result);
+        };
+        reader.readAsBinaryString(blob);
+    }
+    
+    function saveEquipmentPhoto(dataUrl) {
+        if (typeof window.currentEquipmentPhotoIndex !== 'undefined' && 
+            window.db && window.db.sysDetail && window.db.sysDetail.equipment && 
+            window.db.sysDetail.equipment[window.currentEquipmentPhotoIndex]) {
+            
+            // 压缩图片（如果太大）
+            compressImage(dataUrl, 800, 0.8).then(compressedDataUrl => {
+                window.db.sysDetail.equipment[window.currentEquipmentPhotoIndex].photo = compressedDataUrl;
+                if (window.triggerAutoSave) window.triggerAutoSave();
+                
+                // 关闭模态框
+                const modal = document.getElementById('photo-upload-modal');
+                if (modal) modal.remove();
+                
+                // 刷新表格
+                renderEquipmentTable();
+                
+                if (window.showToast) {
+                    window.showToast('fa-solid fa-check-circle', '图片上传成功');
+                } else {
+                    alert('图片上传成功');
+                }
+            });
+        }
+    }
+    
+    function compressImage(dataUrl, maxWidth, quality) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                
+                // 调整大小
+                if (width > maxWidth) {
+                    height = (height * maxWidth) / width;
+                    width = maxWidth;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // 转换为JPEG格式（压缩）
+                const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+                resolve(compressedDataUrl);
+            };
+            img.src = dataUrl;
+        });
+    }
+    
+    function showEquipmentPhotoPreview(dataUrl, equipmentName) {
+        const preview = document.createElement('div');
+        preview.id = 'photo-preview-modal';
+        preview.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10001;
+        `;
+        
+        preview.innerHTML = `
+            <div style="background: white; padding: 20px; border-radius: 8px; max-width: 90%; max-height: 90%; overflow: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">${equipmentName || '设备点检图片预览'}</h3>
+                    <button onclick="document.getElementById('photo-preview-modal').remove()" style="background: none; border: none; font-size: 20px; cursor: pointer;">×</button>
+                </div>
+                <img src="${dataUrl}" style="max-width: 600px; max-height: 400px; display: block; margin: 0 auto;" />
+                <div style="text-align: center; margin-top: 15px;">
+                    <button class="btn" onclick="document.getElementById('photo-preview-modal').remove()">关闭</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(preview);
+    }
+    
+    // 全局变量
+    window.currentEquipmentPhotoIndex = null;
+    
     </script>
 </body>
 </html>
