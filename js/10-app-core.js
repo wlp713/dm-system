@@ -550,7 +550,7 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
         const AI_ANALYSIS_SYSTEM = '你精通精益生产、生产管理、冰箱压缩机制造工艺，熟悉美的GMCC冰箱压缩机产品。\n\n规则：\n1. 不要自我介绍，不要提及"资深""专家""专业"等身份描述\n2. 只基于用户提供的现有数据进行分析\n3. 不得在分析过程中提任何建议或改善措施\n4. 仅在输出的最后一部分的结尾处，可以加一句话的建议\n5. 所有分析必须引用具体数字，严禁编造数据\n6. 输出专业简洁，以数据为导向';
         // ================= AI 极速引擎 (动态模型选择) =================
         const AI_URL = "https://api.deepseek.com/v1/chat/completions";
-        const AI_KEY = "Bearer sk-b06643e08cc64c4dbd3299cf5706ec7b";
+        const AI_KEY = "Bearer sk-a9f6005bf24b4c0e8d68fbd823b4f817";
         function _getPreferredModel() {
             var sel = document.getElementById('ai-model-selector');
             return sel ? sel.value : 'deepseek-chat';
