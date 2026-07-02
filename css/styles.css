@@ -139,6 +139,8 @@ textarea:not(.btn):focus {
         table.grid input[readonly], textarea[readonly] { color: var(--text-muted); font-weight: normal; background: rgba(0,0,0,0.02) !important; cursor: not-allowed; }
         table.grid tbody tr:nth-child(even) td { background: #f8fafc; }
         table.grid tbody tr:hover td { background: #e8f4fd; }
+        /* ★ LOSS责任部门列:确保字体黑色可见 */
+        #lossBody select { color: #000 !important; font-size: 13px !important; font-weight: 700 !important; }
         /* ================= UPPH达成 / 产出达成 统一表头 ================= */
         #upphTable thead th, #shiftTable thead th { background: var(--midea-blue) !important; color: #fff !important; border-color: rgba(255,255,255,0.15) !important; }
         #upphTable tbody td, #shiftTable tbody td { border: 1px solid var(--border-light) !important; }
