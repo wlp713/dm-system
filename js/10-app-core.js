@@ -1088,27 +1088,25 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
             }
 
             // ========== 显式部门识别(文本中直接出现的部门名称) ==========
+            // ★ 增强版:支持泰国无空格格式、括号格式、冒号格式、连字符格式
+            //   Thai text + English dept code (如: สายพานขาดPE, แผนกPCครับ)
+            //   括号格式: (PE), [QA]
+            //   冒号/斜杠: :PE, /QA/
             function identifyExplicitDept(text) {
-                const upperText = text.toUpperCase();
-                // 直接匹配部门代码(包括 Pro.1-Pro.6 格式)
-                const deptPatterns = [
-                    { pattern: /\bPro\.?1\b/i, code: 'Pro.1' },
-                    { pattern: /\bPro\.?2\b/i, code: 'Pro.2' },
-                    { pattern: /\bPro\.?3\b/i, code: 'Pro.3' },
-                    { pattern: /\bPro\.?4\b/i, code: 'Pro.4' },
-                    { pattern: /\bPro\.?5\b/i, code: 'Pro.5' },
-                    { pattern: /\bPro\.?6\b/i, code: 'Pro.6' },
-                    { pattern: /\bPE\b/i, code: 'PE' },
-                    { pattern: /\bHR\b/i, code: 'HR' },
-                    { pattern: /\bPC\b/i, code: 'PC' },
-                    { pattern: /\bQA\b/i, code: 'QA' },
-                    { pattern: /\bR&D\b/i, code: 'R&D' },
-                    { pattern: /\bIP\b/i, code: 'IP' }
-                ];
-                for (const { pattern, code } of deptPatterns) {
-                    if (pattern.test(text)) {
-                        return code;
-                    }
+                // ★ 增强版:用 [^A-Za-z0-9] 替代 \b 处理泰语无空格场景
+                //   如: สายพานขาดPE (PE前是泰文), PEครับ (PE后是泰文)
+                //   也兼容括号/冒号/连字符: (PE), :PE, PE-, 以及行尾PE
+                // 1) 先匹配 Pro.1-Pro.6 (支持 Pro1, Pro.1, PRO 1 等格式)
+                var _proMatch = text.match(/Pro\.?\s*([1-6])/i);
+                if (_proMatch) return 'Pro.' + _proMatch[1];
+                // 2) 匹配 R&D 及其变体
+                if (/R\s*[&＆]\s*D|R&D/i.test(text)) return 'R&D';
+                // 3) 匹配标准代码: PE, PC, QA, IP, HR (用 [^A-Za-z0-9] 替代 \b)
+                var _simpleCodes = ['PE', 'PC', 'QA', 'IP', 'HR'];
+                for (var i = 0; i < _simpleCodes.length; i++) {
+                    var c = _simpleCodes[i];
+                    var re = new RegExp('(^|[^A-Za-z0-9])' + c + '($|[^A-Za-z0-9])', 'i');
+                    if (re.test(text)) return c;
                 }
                 return null;
             }
@@ -3644,12 +3642,28 @@ ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+
             const deptFilter1 = document.getElementById('f-dept'); const deptFilter2 = document.getElementById('fl-dept');
             DEPTS.forEach(d => { let opt1 = document.createElement('option'); opt1.value = d; opt1.innerText = d; deptFilter1.appendChild(opt1); let opt2 = document.createElement('option'); opt2.value = d; opt2.innerText = d; deptFilter2.appendChild(opt2); });
 
-            // ★ db 已在文件顶部初始化为完整嵌入数据，这里只做 localStorage 持久化
+            // ★ ★ ★ 数据回流修复：优先从 localStorage 获取用户修改后的数据 ★ ★ ★
+            //   根因：initApp 之前始终用嵌入数据覆盖 localStorage，用户删除/导入新数据后刷新页面，旧数据嵌在JS中又恢复了
+            //   修复：检查 localStorage 是否存有写计数器（_firebaseWriteSeq > 0），有则说明用户已做修改，从 localStorage 恢复
+            var _localDataStr = null;
+            var _localWriteSeq = parseInt(localStorage.getItem('_firebaseWriteSeq') || '0');
+            try { _localDataStr = localStorage.getItem(DB_KEY); } catch(_le) {}
+            if (_localDataStr && _localWriteSeq > 0) {
+                try {
+                    var _localDb = JSON.parse(_localDataStr);
+                    if (_localDb && _localDb.prod && Object.keys(_localDb.prod).length > 0) {
+                        db = _localDb;
+                        console.log('[initApp] 从 localStorage 恢复用户数据，跳过嵌入数据 (writeSeq=' + _localWriteSeq + ')');
+                    }
+                } catch(_pe) {
+                    console.warn('[initApp] localStorage 解析失败，使用嵌入数据:', _pe.message);
+                }
+            }
             // ★ 清理不合法 key
             sanitizeForFirebase(db, 'initLoad');
             var _dbStr = JSON.stringify(db);
             var _dbLen = _dbStr.length;
-            // ★ 保存到 localStorage
+            // ★ 保存到 localStorage（用户数据已恢复，此写入不会覆盖用户修改）
             try { localStorage.setItem(DB_KEY, _dbStr); } catch(le) {
                 for (var _cli = 0; _cli < localStorage.length; _cli++) {
                     var _clk = localStorage.key(_cli);
