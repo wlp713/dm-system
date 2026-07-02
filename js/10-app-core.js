@@ -549,11 +549,11 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
         // 不自我介绍，只做数据驱动分析，仅结尾可加一句建议
         const AI_ANALYSIS_SYSTEM = '你精通精益生产、生产管理、冰箱压缩机制造工艺，熟悉美的GMCC冰箱压缩机产品。\n\n规则：\n1. 不要自我介绍，不要提及"资深""专家""专业"等身份描述\n2. 只基于用户提供的现有数据进行分析\n3. 不得在分析过程中提任何建议或改善措施\n4. 仅在输出的最后一部分的结尾处，可以加一句话的建议\n5. 所有分析必须引用具体数字，严禁编造数据\n6. 输出专业简洁，以数据为导向';
         // ================= AI 极速引擎 (动态模型选择) =================
-        const AI_URL = "https://api.siliconflow.cn/v1/chat/completions";
-        const AI_KEY = "Bearer sk-pdmykhprsbiuskscwrnuwlhdvgfeomexwflenqbrfnvpwyqb";
+        const AI_URL = "https://api.deepseek.com/v1/chat/completions";
+        const AI_KEY = "Bearer sk-b06643e…ec7b";
         function _getPreferredModel() {
             var sel = document.getElementById('ai-model-selector');
-            return sel ? sel.value : 'THUDM/GLM-4-9B-0414';
+            return sel ? sel.value : 'deepseek-chat';
         }
         async function callAI_API(prompt, retryCount = 0, systemOverride, maxTokens) {
             try {
@@ -2906,7 +2906,7 @@ ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+
         var _AI_API_BASE = AI_URL;
         function _getSelectedModel() {
             var sel = document.getElementById('ai-model-selector');
-            return sel ? sel.value : 'THUDM/GLM-4-9B-0414';
+            return sel ? sel.value : 'deepseek-chat';
         }
         
         // ★ 单次全量 AI 对比分析：一次发送今日/昨日/本周数据，AI直接输出最终报表
