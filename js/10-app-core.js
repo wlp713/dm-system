@@ -2641,7 +2641,7 @@ ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+
                     document.getElementById('ai-result-content').innerHTML = ans;
                     document.getElementById('ai-result-modal').style.display = 'flex';
                     // 更新模态框标题
-                    let modalTitle = document.querySelector('#ai-result-modal .modal-overlay h3');
+                    let modalTitle = document.querySelector('#ai-result-modal .modal-content h3');
                     if (modalTitle) modalTitle.textContent = 'AI智能总结报告';
                     showToast('fa-solid fa-check', 'AI智能总结完成');
                 }
