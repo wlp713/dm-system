@@ -563,7 +563,9 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
                     msgs.push({ "role": "system", "content": systemOverride || AI_ANALYSIS_SYSTEM });
                 }
                 msgs.push({ "role": "user", "content": prompt });
-                var _mt = (typeof maxTokens === 'number' && maxTokens > 0) ? maxTokens : 512;
+                // 推理模型（v4-flash/v4-pro/reasoner）思考过程消耗大量token，需提高默认max_tokens
+                var _isReasoning = currentModel !== 'deepseek-chat';
+                var _mt = (typeof maxTokens === 'number' && maxTokens > 0) ? maxTokens : (_isReasoning ? 2048 : 512);
                 const res = await fetch(AI_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': AI_KEY },
