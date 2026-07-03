@@ -547,7 +547,13 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
         const DEPTS = ['Pro.1', 'Pro.2', 'Pro.3', 'Pro.4', 'Pro.5', 'Pro.6', 'PE', 'HR', 'R&D', 'PC', 'IP', 'QA'];
         // ★ 统一AI分析系统提示词：所有分析类AI调用共享此设定
         // 不自我介绍，只做数据驱动分析，仅结尾可加一句建议
-        const AI_ANALYSIS_SYSTEM = '你精通精益生产、生产管理、冰箱压缩机制造工艺，熟悉美的GMCC冰箱压缩机产品。\n\n规则：\n1. 不要自我介绍，不要提及"资深""专家""专业"等身份描述\n2. 只基于用户提供的现有数据进行分析\n3. 不得在分析过程中提任何建议或改善措施\n4. 仅在输出的最后一部分的结尾处，可以加一句话的建议\n5. 所有分析必须引用具体数字，严禁编造数据\n6. 输出专业简洁，以数据为导向';
+        const AI_ANALYSIS_SYSTEM = '你是美的GMCC冰箱压缩机工厂的精益分析专家，精通MBS（美的生产系统）、精益生产管理体系。\n\n【精益方法论框架】\n- MBS日常管理4.0：事前管理（排产/物料/人机料法提前检讨）→事中管理（安灯/异常每2H跟踪）→事后闭环（日周月复盘、事件升级机制）\n- PSP问题解决流程：现象→数据收集(检查表/直方图/柏拉图)→原因分析(因果图/5Why)→要因验证→对策实施→效果确认→标准化\n- TPM全员生产维护：OEE综合效率、6源查找(污染源/故障源/浪费源/缺陷源/危险源/困难源)、自主保全、计划保全\n- 标准化工作：节拍时间(T.T)、作业顺序、标准在制品(SWIP)、增值/非增值分析、人机联合作业\n- 七大浪费：过量生产/等待/搬运/过度加工/库存/动作/不良\n- 5S + 安全管理：整理/整顿/清扫/清洁/素养/安全\n- 无增量效率提升：VPPH/UPPH指标、产线平衡、瓶颈工序、少人化\n\n输出规则（严格遵守）：\n1. 只输出纯HTML代码（无markdown代码块包围、无\`\`\`html标记）\n2. 不要自我介绍，不要加前导说明文字\n3. 只基于用户提供的现有数据进行分析，严禁编造数据\n4. 所有分析必须引用具体数字\n5. 不要预测趋势或给改善建议，仅在最后一句可加简短建议\n6. 分析中需自然引用MBS精益方法论框架，结合数据说明';
+        // ================= 从AI返回内容中剥离markdown代码块包裹 =================
+        function _sanitizeAIOutput(str) {
+            if (!str) return '';
+            // 去掉首尾的 ```html ... ``` 或 ``` ... ``` 包裹
+            return str.replace(/^\s*```(?:html)?\n?/i, '').replace(/```\s*$/i, '').trim();
+        }
         // ================= AI 极速引擎 (动态模型选择) =================
         const AI_URL = "https://api.deepseek.com/v1/chat/completions";
         const AI_KEY = "Bearer sk-a9f6005bf24b4c0e8d68fbd823b4f817";
@@ -584,7 +590,7 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
                 let choice = data.choices[0].message;
                 let content = choice.content || choice.reasoning_content || '';
                 if (!content) return null;
-                return content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                return _sanitizeAIOutput(content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim());
             } catch(e) {
                 console.error(e);
                 showToast('fa-solid fa-xmark', 'AI 调用失败: ' + e.message, 'error');
@@ -2627,16 +2633,20 @@ ${deptRanking.map(function(d, i){ return (i+1)+'. '+d[0]+' -> '+d[1].qty+'套('+
 【线体排名(按损失)】
 ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+l[1].count+'次)'; }).join('\n')}
 
-请做数据驱动分析，输出HTML格式，表格加class="ai-result-table"：
+请做数据驱动分析，结合MBS精益方法论（日常管理4.0事中事后逻辑、PSP问题解决、TPM设备效率、标准化工作、七大浪费）解读数据背后的管理问题。
+
+输出纯HTML，无markdown代码块，无任何前导介绍文字，直接以HTML标签开始：
+表格加class="ai-result-table"：
 
 【报告结构】
 1. 总体罗盘：一句概述周期LOSS表现，突出总损失、平均损失、最多发部门
-2. 核心发现：TOP3数据事实，每个事实包括【现象→影响量→趋势】
-3. 归因聚焦：不超过3点，基于数据特征的推理（不是猜测）
+2. 核心发现：TOP3数据事实，每个事实包括【现象→影响量→趋势】，并引用MBS方法论分析（如：该问题属于XX类浪费、符合PSP中的XX现象、应从TPM/标准化/5Why等维度切入）
+3. 归因聚焦：不超过3点，基于数据特征的推理，引用精益框架解读
 
 【红线】
 - 严禁编造数据
 - 所有结论必须有数据支撑
+- 不要以"专家""专业""资深"开头或自我介绍
 - 语言: ${currentLang}`;
 
             try {
