@@ -579,7 +579,9 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
                     }
                     throw new Error(data.error?.message || "API 错误");
                 }
-                let content = data.choices[0].message.content;
+                let choice = data.choices[0].message;
+                let content = choice.content || choice.reasoning_content || '';
+                if (!content) return null;
                 return content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
             } catch(e) {
                 console.error(e);
