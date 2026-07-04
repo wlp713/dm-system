@@ -1251,6 +1251,319 @@ let db = _SEED;
             // 如果没有解析出结果,给出提示
             showToast('fa-solid fa-info-circle', '未能识别有效LOSS记录,请检查格式:日期(DD/MM/YYYY) + 班次 + 线体 + 描述 + 数量', 'warning');
         };
+
+        // ================= LOSS Excel 格式智能导入 =================
+        window.importLossFromExcel = function(fileInput) {
+            var file = fileInput.files[0];
+            if (!file) return showToast('fa-solid fa-triangle-exclamation', '请选择文件', 'warning');
+
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    var data = new Uint8Array(e.target.result);
+                    var workbook = XLSX.read(data, { type: 'array' });
+                    var sheetName = workbook.SheetNames[0];
+                    var sheet = workbook.Sheets[sheetName];
+                    var jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+                    if (jsonData.length < 2) {
+                        showToast('fa-solid fa-triangle-exclamation', 'Excel 文件为空或只有标题行', 'warning');
+                        return;
+                    }
+
+                    // ========== 智能列识别 ==========
+                    // 尝试用前2行分析列类型,跳过全空行
+                    var headerRow = -1;
+                    for (var ri = 0; ri < Math.min(3, jsonData.length); ri++) {
+                        var row = jsonData[ri];
+                        var hasContent = false;
+                        for (var ci = 0; ci < row.length; ci++) {
+                            if (String(row[ci] || '').trim().length > 0) { hasContent = true; break; }
+                        }
+                        if (hasContent && ri === 0) { headerRow = 0; break; }
+                        if (hasContent && ri > 0) { headerRow = ri; break; }
+                    }
+                    if (headerRow < 0) { showToast('fa-solid fa-triangle-exclamation', '无法识别表头行', 'warning'); return; }
+
+                    var headers = jsonData[headerRow];
+                    // 如果表头是合并单元格格式(前几列为空),跳过分组行
+                    var emptyPrefixCount = 0;
+                    for (var ci = 0; ci < headers.length; ci++) {
+                        if (String(headers[ci] || '').trim() === '') emptyPrefixCount++;
+                        else break;
+                    }
+                    var dataStartRow = headerRow + 1;
+
+                    // ========== 列名匹配规则库 ==========
+                    function normalizeHeader(h) {
+                        return String(h || '').toLowerCase().replace(/[\n\r]+/g, ' ').replace(/\s+/g, ' ').trim();
+                    }
+
+                    function matchColumn(headers, patterns) {
+                        for (var ci = 0; ci < headers.length; ci++) {
+                            var h = normalizeHeader(headers[ci]);
+                            for (var pi = 0; pi < patterns.length; pi++) {
+                                if (h.indexOf(patterns[pi]) >= 0) return ci;
+                            }
+                        }
+                        return -1;
+                    }
+
+                    // 日期列: 多种日期格式关键词
+                    var dateCol = matchColumn(headers, [
+                        'data', 'วันที่', 'date', 'DATE', '日期', 'วันที่ผลิตผลิต',
+                        'วันที่เริ่มผลิต', 'prod date', 'production date'
+                    ]);
+
+                    // 班次列
+                    var shiftCol = matchColumn(headers, [
+                        'shift', 'กะ', 'กะการผลิต', '班次', 'SHIFT',
+                        'กะที่ผลิต', 'กะทำงาน'
+                    ]);
+
+                    // 线体列
+                    var lineCol = matchColumn(headers, [
+                        'line', 'สาย', '产线', 'LINE', 'สายการผลิต',
+                        'สายผลิต', '制造单元'
+                    ]);
+
+                    // 描述列
+                    var descCol = matchColumn(headers, [
+                        'event description', 'รายละเอียดปัญหา', 'รายละเอียด',
+                        'problems', 'event', '异常事件描述', '描述',
+                        'PROBLEMS', 'problem report', 'description',
+                        'เหตุการณ์', 'ปัญหา'
+                    ]);
+
+                    // 部门列
+                    var deptCol = matchColumn(headers, [
+                        'influence department', 'แผนก', 'department', 'dept',
+                        'แผนกที่สร้าง', '责任部门', 'RES', 'RESPONSIBLE',
+                        'responsible', 'influence dept', 'ผู้รับผิดชอบ'
+                    ]);
+
+                    // 数量列
+                    var qtyCol = matchColumn(headers, [
+                        'influence sets', 'จำนวน', 'sets', 'loss sets',
+                        'จำนวนที่กระทบ', '损失数量', 'LOSS SETS',
+                        'qty', 'quantity', '损失'
+                    ]);
+
+                    // ========== 如果列检测不全,用数据内容做二次校验 ==========
+                    var sampleRows = jsonData.slice(dataStartRow, Math.min(dataStartRow + 5, jsonData.length));
+
+                    function detectDateColByData() {
+                        for (var ci = 0; ci < headers.length; ci++) {
+                            if (ci === shiftCol || ci === lineCol || ci === descCol || ci === deptCol || ci === qtyCol) continue;
+                            var dateCount = 0;
+                            for (var ri = 0; ri < sampleRows.length; ri++) {
+                                var val = String(sampleRows[ri][ci] || '').trim();
+                                if (/^\d{4}[\/-]\d{2}[\/-]\d{2}$/.test(val) || /^\d{2}[\/-]\d{2}[\/-]\d{4}$/.test(val)) dateCount++;
+                            }
+                            if (dateCount >= sampleRows.length * 0.6) return ci;
+                        }
+                        return -1;
+                    }
+
+                    function detectQtyColByData() {
+                        for (var ci = 0; ci < headers.length; ci++) {
+                            if (ci === dateCol || ci === shiftCol || ci === lineCol || ci === descCol || ci === deptCol) continue;
+                            var numCount = 0;
+                            for (var ri = 0; ri < sampleRows.length; ri++) {
+                                var val = String(sampleRows[ri][ci] || '').trim();
+                                if (/^-?\d{1,6}$/.test(val) && val !== '' && val !== '0') numCount++;
+                            }
+                            if (numCount >= sampleRows.length * 0.6) return ci;
+                        }
+                        return -1;
+                    }
+
+                    function detectDeptColByData() {
+                        var deptCodes = ['pe','pc','qa','ip','hr'];
+                        for (var ci = 0; ci < headers.length; ci++) {
+                            if (ci === dateCol || ci === shiftCol || ci === lineCol || ci === descCol || ci === qtyCol) continue;
+                            var deptCount = 0;
+                            for (var ri = 0; ri < sampleRows.length; ri++) {
+                                var val = String(sampleRows[ri][ci] || '').trim().toLowerCase();
+                                if (deptCodes.indexOf(val) >= 0 || val.indexOf('mr.') >= 0) deptCount++;
+                            }
+                            if (deptCount >= sampleRows.length * 0.3) return ci;
+                        }
+                        return -1;
+                    }
+
+                    function detectShiftColByData() {
+                        for (var ci = 0; ci < headers.length; ci++) {
+                            if (ci === dateCol || ci === lineCol || ci === descCol || ci === deptCol || ci === qtyCol) continue;
+                            var shiftCount = 0;
+                            for (var ri = 0; ri < sampleRows.length; ri++) {
+                                var val = String(sampleRows[ri][ci] || '').trim().toLowerCase();
+                                if (['day','night','d','n','白班','夜班','晚班','กลางวัน','ดึก','กลางคืน'].indexOf(val) >= 0) shiftCount++;
+                            }
+                            if (shiftCount >= sampleRows.length * 0.3) return ci;
+                        }
+                        return -1;
+                    }
+
+                    function detectLineColByData() {
+                        for (var ci = 0; ci < headers.length; ci++) {
+                            if (ci === dateCol || ci === shiftCol || ci === descCol || ci === deptCol || ci === qtyCol) continue;
+                            var lineCount = 0;
+                            for (var ri = 0; ri < sampleRows.length; ri++) {
+                                var val = String(sampleRows[ri][ci] || '').trim().toUpperCase();
+                                if (/^(LINE\s*[A-D]|[A-D]|[A-D]线|LINE)$/.test(val)) lineCount++;
+                            }
+                            if (lineCount >= sampleRows.length * 0.3) return ci;
+                        }
+                        return -1;
+                    }
+
+                    // 补全未识别的列
+                    if (dateCol < 0) dateCol = detectDateColByData();
+                    if (qtyCol < 0) qtyCol = detectQtyColByData();
+                    if (deptCol < 0) deptCol = detectDeptColByData();
+                    if (shiftCol < 0) shiftCol = detectShiftColByData();
+                    if (lineCol < 0) lineCol = detectLineColByData();
+                    // 描述列:剩余未分配的第一个列
+                    if (descCol < 0) {
+                        for (var ci = 0; ci < headers.length; ci++) {
+                            if (ci !== dateCol && ci !== shiftCol && ci !== lineCol && ci !== deptCol && ci !== qtyCol && ci !== descCol) {
+                                descCol = ci; break;
+                            }
+                        }
+                    }
+
+                    // ========== 检测到列映射后开始导入 ==========
+                    var allCols = [dateCol, shiftCol, lineCol, descCol, deptCol, qtyCol];
+                    var unrecognizedCount = 0;
+                    for (var ci = 0; ci < allCols.length; ci++) {
+                        if (allCols[ci] < 0) unrecognizedCount++;
+                    }
+
+                    if (unrecognizedCount > 1 || dateCol < 0 || descCol < 0) {
+                        showToast('fa-solid fa-triangle-exclamation', '无法识别文件列结构(日期/描述列缺失)', 'warning');
+                        return;
+                    }
+
+                    // ========== 辅助函数 ==========
+                    function normalizeDate(val) {
+                        if (!val) return new Date().toISOString().split('T')[0];
+                        var s = String(val).trim();
+                        // Excel 序列号
+                        if (/^\d{5}$/.test(s)) {
+                            var d = new Date((parseInt(s) - 25569) * 86400 * 1000);
+                            if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+                        }
+                        // YYYY-MM-DD
+                        var m = s.match(/^(\d{4})[\/-](\d{2})[\/-](\d{2})$/);
+                        if (m) return m[1] + '-' + m[2] + '-' + m[3];
+                        // DD/MM/YYYY
+                        m = s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+                        if (m) return m[3] + '-' + m[2] + '-' + m[1];
+                        // 已经是 Date 对象
+                        if (val instanceof Date && !isNaN(val.getTime())) return val.toISOString().split('T')[0];
+                        return new Date().toISOString().split('T')[0];
+                    }
+
+                    function normalizeShift(val) {
+                        var s = String(val || '').trim().toLowerCase();
+                        var nightWords = ['night','n','夜班','晚班','ดึก','กลางคืน','nightshift','เวรค่ำ','เวรดึก'];
+                        for (var i = 0; i < nightWords.length; i++) {
+                            if (s.indexOf(nightWords[i]) >= 0) return 'N';
+                        }
+                        return 'D';
+                    }
+
+                    function normalizeLine(val) {
+                        var s = String(val || '').trim().toUpperCase();
+                        var m = s.match(/LINE\s*([A-D])/);
+                        if (m) return 'LINE ' + m[1];
+                        m = s.match(/^([A-D])$/);
+                        if (m) return 'LINE ' + m[1];
+                        m = s.match(/([A-D])线/);
+                        if (m) return 'LINE ' + m[1];
+                        m = s.match(/ไลน์\s*([A-D])/);
+                        if (m) return 'LINE ' + m[1];
+                        return 'LINE A';
+                    }
+
+                    function normalizeDept(val) {
+                        var s = String(val || '').trim();
+                        // 直接匹配部门代码
+                        var codeM = s.match(/\b(PE|PC|QA|IP|HR)\b/i);
+                        if (codeM) return codeM[1].toUpperCase();
+                        if (/R\s*[&＆]\s*D|R&D/i.test(s)) return 'R&D';
+                        if (/Pro\.?\s*[1-6]/i.test(s)) return s.match(/(Pro\.?\s*[1-6])/i)[1];
+                        // 去掉责任人名称后重试
+                        s = s.replace(/Mr\.?\s*[A-Za-z]+/gi, '').trim();
+                        codeM = s.match(/\b(PE|PC|QA|IP|HR)\b/i);
+                        if (codeM) return codeM[1].toUpperCase();
+                        return s || 'PE';
+                    }
+
+                    function normalizeOwner(val) {
+                        var s = String(val || '').trim();
+                        var m = s.match(/(Mr\.?\s*[A-Za-z]+)/i);
+                        if (m) return m[1];
+                        m = s.match(/(นาย|คุณ)\s*[\u0E00-\u0E7F]+/);
+                        if (m) return m[0];
+                        return '';
+                    }
+
+                    // ========== 批量导入 ==========
+                    var importCount = 0;
+                    var skipCount = 0;
+                    if (!db.loss) db.loss = [];
+
+                    for (var ri = dataStartRow; ri < jsonData.length; ri++) {
+                        var row = jsonData[ri];
+                        var dateVal = row[dateCol];
+                        var descVal = row[descCol];
+
+                        if (!dateVal && !descVal) { skipCount++; continue; }
+                        if (!String(descVal || '').trim()) { skipCount++; continue; }
+
+                        var normDate = normalizeDate(dateVal);
+                        var normShift = shiftCol >= 0 ? normalizeShift(row[shiftCol]) : 'D';
+                        var normLine = lineCol >= 0 ? normalizeLine(row[lineCol]) : 'LINE A';
+                        var rawDept = deptCol >= 0 ? String(row[deptCol] || '') : '';
+                        var normDept = normalizeDept(rawDept);
+                        var owner = normalizeOwner(rawDept);
+                        var rawQty = qtyCol >= 0 ? String(row[qtyCol] || '').trim() : '';
+                        var qty = parseInt(rawQty.replace(/[^\d\-]/g, '')) || 0;
+                        if (qty > 0) qty = -qty; // 损失数量统一为负数
+
+                        db.loss.unshift({
+                            id: Date.now() + ri + Math.random(),
+                            date: normDate,
+                            line: normLine,
+                            shift: normShift,
+                            desc: String(descVal).trim(),
+                            qty: qty,
+                            owner: owner,
+                            dept: normDept
+                        });
+                        importCount++;
+                    }
+
+                    triggerAutoSave();
+                    renderLoss();
+
+                    var msg = 'Excel导入完成: 共 ' + importCount + ' 条';
+                    if (skipCount > 0) msg += ' (跳过 ' + skipCount + ' 行空数据)';
+                    showToast('fa-solid fa-file-excel', msg, 'success');
+
+                } catch(err) {
+                    console.error('[importLoss] 错误:', err);
+                    showToast('fa-solid fa-xmark', '导入失败: ' + err.message, 'danger');
+                }
+
+                // 重置 input 以便重复选择同一文件
+                fileInput.value = '';
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
         // ================= 系统运作逻辑 (完全自治计算) =================
         function ensureSysData(date) {
             if(!db.sysOps[date]) db.sysOps[date] = { m4: 100, insp: 100, andon: 5, memo: '', locked: false };
