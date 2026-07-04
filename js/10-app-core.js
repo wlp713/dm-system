@@ -3517,8 +3517,15 @@ ${_isUPPH ? `
 【红线】
 - 严禁编造数据
 - 所有分析必须引用具体数字`;
-            let ans = await callAI_API(prompt);
-            btn.innerHTML = oldHtml; btn.disabled = false;
+            let ans;
+            try {
+                ans = await callAI_API(prompt);
+            } catch(e) {
+                console.error('aiAnalyzeTrend error:', e);
+                showToast('fa-solid fa-times', '分析异常: '+e.message);
+            } finally {
+                btn.innerHTML = oldHtml; btn.disabled = false;
+            }
             if(ans) { let memoEl = document.getElementById('memoText'); memoEl.value = (memoEl.value ? memoEl.value + '\n\n' : '') + `[AI 数据洞察]:${ans}`; saveMemo(); showToast('fa-solid fa-check', '洞察完成'); }
         };
         window.generateAISummary = async function() {
@@ -3554,8 +3561,15 @@ ${_isUPPH ? `
 - 严禁编造数据
 - 每条结论必须引用具体数字
 - 语言: ${currentLang}`;
-            let summary = await callAI_API(prompt);
-            btn.innerHTML = `<i class="fa-solid fa-robot"></i> 重新生成`; contentBox.classList.remove('ai-generating');
+            let summary;
+            try {
+                summary = await callAI_API(prompt);
+            } catch(e) {
+                console.error('generateAISummary error:', e);
+                showToast('fa-solid fa-times', '生成异常: '+e.message);
+            } finally {
+                btn.innerHTML = `<i class="fa-solid fa-robot"></i> 重新生成`; contentBox.classList.remove('ai-generating');
+            }
             if(summary) { contentBox.innerHTML = summary; } else { contentBox.innerHTML = "生成失败"; }
         };
 
