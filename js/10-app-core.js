@@ -411,23 +411,24 @@ let db = _SEED;
                 });
             }
             if (cloudDb.memo !== undefined && cloudDb.memo !== null) db.memo = cloudDb.memo;
-            // ★ 嵌入保护：不直接替换 prod/dm，改用天数级深度合并（本地删除的 key 不会被云端恢复）
-            if (!_embeddedProtection && cloudDb.prod && Object.keys(cloudDb.prod).length > 0) {
-                db.prod = cloudDb.prod;
-            } else if (_embeddedProtection && cloudDb.prod) {
-                // prod 用 key-by-key 合并：只补充云端有、本地没有的天数
+            // ★★★★★ 彻底修复：prod/dm/sysOps 永远用 key-by-key 合并，一律不做 direct assignment
+            //   根因：无论什么 flag 状态，direct assignment 都会全量覆盖本地已删除的天数。
+            //   key-by-key: 只补充云端有、本地没有的天数，本地已删的不恢复。
+            if (cloudDb.prod) {
                 Object.keys(cloudDb.prod).forEach(function(d) {
                     if (!db.prod[d]) db.prod[d] = cloudDb.prod[d];
                 });
             }
-            if (!_embeddedProtection && cloudDb.dm && Object.keys(cloudDb.dm).length > 0) {
-                db.dm = cloudDb.dm;
-            } else if (_embeddedProtection && cloudDb.dm) {
+            if (cloudDb.dm) {
                 Object.keys(cloudDb.dm).forEach(function(d) {
                     if (!db.dm[d]) db.dm[d] = cloudDb.dm[d];
                 });
             }
-            if (cloudDb.sysOps && Object.keys(cloudDb.sysOps).length > 0) db.sysOps = cloudDb.sysOps;
+            if (cloudDb.sysOps) {
+                Object.keys(cloudDb.sysOps).forEach(function(k) {
+                    if (!db.sysOps[k]) db.sysOps[k] = cloudDb.sysOps[k];
+                });
+            }
             // ★ 保存到本地前也清理不合法 key(防止 localStorage 中也写入脏数据)
             sanitizeForFirebase(db, 'localStorageSave');
             try { try{localStorage.setItem(DB_KEY,JSON.stringify(db))}catch(qe){console.warn('[存储]配额满,清理后重试');for(var _qi=0;_qi<localStorage.length;_qi++){var _qk=localStorage.key(_qi);if(_qk&&_qk.indexOf(DB_KEY+'_backup_')===0){localStorage.removeItem(_qk);_qi--;}}try{localStorage.setItem(DB_KEY,JSON.stringify(db))}catch(qe2){}} } catch(e){}
@@ -1564,6 +1565,8 @@ let db = _SEED;
                         importCount++;
                     }
 
+                    // ★ 同步写入 localStorage 确保导入立即持久化
+                    try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(_e) {}
                     triggerAutoSave();
                     renderLoss();
 
@@ -2307,7 +2310,8 @@ let db = _SEED;
                 db.sysDetail._skipDates[currentSysDetailType][delRow.date] = true;
             }
             db.sysDetail[currentSysDetailType] = sysDetailRows().filter(r => String(r.id) !== String(id));
-            // ★ 性能优化:延迟保存 localStorage,不阻塞 UI 渲染
+            // ★ 同步写入 localStorage:确保删除立即持久化,防止 _pendingLocalSave 导致保存遗漏
+            try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(_e) {}
             _deferredLocalStorageSave();
             // ★ 性能优化:延迟 forceSaveToFirebase 到下一 macrotask,避免 repairData+sanitize 阻塞 UI
             setTimeout(function() {
@@ -4391,8 +4395,14 @@ ${topUnresolved.map(function(p){ return '[' + p.date + '] ' + (p.ws||'') + ' ' +
                 try { localStorage.setItem(DB_KEY, _dbStr); } catch(e2) {}
             }
             window.db = db;
-            // ★ 标记：初始化的是完整嵌入数据，禁止 Firebase merge 覆盖
-            window._EMBEDDED_DATA_ACTIVE = (Object.keys(db.prod||{}).length > 10);
+            // ★ 标记：只要初始加载过嵌入数据(seed有prod)，就永远禁止Firebase merge覆盖
+            //   即使 localStorage 的 prod 天数 < 10，嵌入数据保护也生效
+            //   用户的本地数据始终权威，云端只作备份
+            if (window._EMBEDDED_DATA_ACTIVE || (Object.keys(_SEED.prod||{}).length > 10)) {
+                window._EMBEDDED_DATA_ACTIVE = true;
+            } else {
+                window._EMBEDDED_DATA_ACTIVE = (Object.keys(db.prod||{}).length > 10);
+            }
             console.log('[initApp] loaded ' + (_dbLen/1024).toFixed(0) + ' KB data, prod days=' + Object.keys(db.prod||{}).length + ', embeddedFlag=' + window._EMBEDDED_DATA_ACTIVE);
             // db 已有完整数据，永不调用 injectSafeDemo()
 
@@ -5096,7 +5106,7 @@ ${topUnresolved.map(function(p){ return '[' + p.date + '] ' + (p.ws||'') + ' ' +
             renderInput();
         };
         window.addDLine = function(ws) { let newId = Date.now() + Math.random(); let newName = `新线体-${Math.floor(Math.random()*100)}`; db.dLinesConfig[ws].push({id: newId, name: newName}); Object.keys(db.prod).forEach(d => { db.prod[d][ws].dLines.push({ id: newId, name: newName, t:0, o:0, h:0, att:0, head:0 }); }); triggerAutoSave(); renderInput(); };
-        window.delDLine = function(ws, id) { db.dLinesConfig[ws] = db.dLinesConfig[ws].filter(l => String(l.id) !== String(id)); Object.keys(db.prod).forEach(d => { db.prod[d][ws].dLines = db.prod[d][ws].dLines.filter(l => String(l.id) !== String(id)); }); _deferredLocalStorageSave(); setTimeout(function(){ if (typeof forceSaveToFirebase === 'function') { forceSaveToFirebase().catch(function(){}); } else { triggerAutoSave(); } }, 0); renderInput(); };
+        window.delDLine = function(ws, id) { db.dLinesConfig[ws] = db.dLinesConfig[ws].filter(l => String(l.id) !== String(id)); Object.keys(db.prod).forEach(d => { db.prod[d][ws].dLines = db.prod[d][ws].dLines.filter(l => String(l.id) !== String(id)); }); try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(_de) {} _deferredLocalStorageSave(); setTimeout(function(){ if (typeof forceSaveToFirebase === 'function') { forceSaveToFirebase().catch(function(){}); } else { triggerAutoSave(); } }, 0); renderInput(); };
         window.updateFixedLine = function(ws, lineName, field, val) { 
             let dateStr = window.safeDOM.val("globalDate"); 
             if(!db.prod[dateStr]?.[ws]?.lines?.[lineName]) return;
@@ -6271,7 +6281,7 @@ ${topUnresolved.map(function(p){ return '[' + p.date + '] ' + (p.ws||'') + ' ' +
         }
         window.addProblem = function() { db.problems.unshift({ id:Date.now(), date:window.safeDOM.val("globalDate"), ws:'PRO1', desc:'', loc:'', owner:'', dept:'PE', dueDate:'', status: (currentLang==='zh'?'未解决':(currentLang==='en'?'Open':'ยังไม่แก้')) }); triggerAutoSave(); renderPDCA(); renderSysOps(); };
         window.updateProb = function(id, f, v) { let p = db.problems.find(x=>x.id==id); if(p) { p[f]=v; } triggerAutoSave(); renderSysOps(); };
-        window.delProb = function(id) { db.problems = db.problems.filter(x=>x.id!=id); _deferredLocalStorageSave(); setTimeout(function(){ if (typeof forceSaveToFirebase === 'function') { forceSaveToFirebase().catch(function(){}); } else { triggerAutoSave(); } }, 0); renderPDCA(); renderSysOps(); };
+        window.delProb = function(id) { db.problems = db.problems.filter(x=>x.id!=id); try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(_e) {} _deferredLocalStorageSave(); setTimeout(function(){ if (typeof forceSaveToFirebase === 'function') { forceSaveToFirebase().catch(function(){}); } else { triggerAutoSave(); } }, 0); renderPDCA(); renderSysOps(); };
         // ★ 性能优化：防抖版 filter render，避免快速输入时频繁重绘
         var _renderLossTimer = null;
         window._debouncedRenderLoss = function() {
@@ -6305,7 +6315,8 @@ pspInfo += `<button class="loss-psp-plus" data-loss-id="${p.id}" onclick="toggle
         // ★ 修复:delLoss 必须 await forceSaveToFirebase,否则保存失败时用户不知情,数据在几秒后从云端恢复
         window.delLoss = function(id) {
             db.loss = db.loss.filter(x=>x.id!=id);
-            // ★ 性能优化:延迟保存 localStorage,不阻塞 UI 渲染
+            // ★ 同步写入 localStorage:确保删除立即持久化,防止 _pendingLocalSave 导致保存遗漏
+            try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(_e) {}
             _deferredLocalStorageSave();
             // ★ 性能优化:延迟 forceSaveToFirebase 到下一 macrotask,避免 repairData+sanitize 阻塞 UI
             setTimeout(function(){
@@ -6996,6 +7007,7 @@ pspInfo += `<button class="loss-psp-plus" data-loss-id="${p.id}" onclick="toggle
         window.delKaizen = function(id) {
             if(!confirm('确定删除该项目?')) return;
             db.kaizen = (db.kaizen||[]).filter(function(x){ return x.id!=id; });
+            try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(_e) {}
             _deferredLocalStorageSave();
             setTimeout(function(){
                 if (typeof forceSaveToFirebase === 'function') { forceSaveToFirebase().catch(function(){}); } else { triggerAutoSave(); }
