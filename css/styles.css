@@ -77,6 +77,23 @@
         .ai-html-content th { background: var(--gradient-brand); color: white; font-weight: 800; }
         .ai-html-content tr:nth-child(even) { background: rgba(240, 249, 255, 0.3); }
         .ai-html-content tr:hover { background: rgba(240, 249, 255, 0.8); }
+        /* ★ AI 报告通用样式 —— 统一所有AI分析的可视化 */
+        .ai-report-content { font-size: 14px; line-height: 1.8; color: var(--text-main); word-break: break-word; overflow-wrap: break-word; }
+        .ai-report-content h3 { color: var(--midea-dark); font-size: 17px; margin: 20px 0 10px 0; padding-left: 10px; border-left: 4px solid var(--midea-blue); font-weight: 900; letter-spacing: 0.5px; }
+        .ai-report-content h4 { color: var(--text-main); font-size: 15px; margin: 15px 0 8px 0; font-weight: 800; }
+        .ai-report-content p { margin-bottom: 12px; }
+        .ai-report-content ul, .ai-report-content ol { padding-left: 25px; margin-bottom: 15px; }
+        .ai-report-content li { margin-bottom: 6px; }
+        .ai-report-content strong, .ai-report-content b { color: var(--danger); font-weight: 900; background: rgba(225,29,72,0.05); padding: 0 4px; border-radius: 3px; }
+        .ai-report-content table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px; background: white; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .ai-report-content th, .ai-report-content td { border: 1px solid rgba(2,132,199,0.15); padding: 10px 12px; text-align: left; }
+        .ai-report-content th { background: var(--gradient-brand); color: white; font-weight: 800; }
+        .ai-report-content tr:nth-child(even) { background: rgba(240, 249, 255, 0.3); }
+        .ai-report-content tr:hover { background: rgba(240, 249, 255, 0.8); }
+        .ai-report-content pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 16px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.6; }
+        .ai-report-content code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: var(--danger); }
+        .ai-report-content blockquote { border-left: 4px solid var(--midea-blue); margin: 12px 0; padding: 8px 16px; background: rgba(240,249,255,0.3); border-radius: 0 6px 6px 0; color: var(--text-muted); }
+        .ai-report-empty { padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
         #drop-zone { position: absolute; top: 0; left: 0; width: calc(100% - 30px); height: calc(100% - 30px); background: rgba(240, 249, 255, 0.85); border: 4px dashed var(--midea-blue); z-index: 9999; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(8px); transition: 0.3s; margin: 15px; border-radius: 16px;}
         #drop-zone i { font-size: 70px; color: var(--midea-blue); margin-bottom: 15px; animation: bounce 1s infinite alternate; filter: drop-shadow(0 4px 10px rgba(2,132,199,0.4));}
         #drop-zone p { font-size: 22px; color: var(--midea-blue); font-weight: 800; letter-spacing: 1px;}

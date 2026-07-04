@@ -159,8 +159,8 @@
     </script>
 
     <!-- 模块加载 (defer 顺序执行) -->
-    <script src="data/seed.js?v=20260704e" defer></script>
-    <script src="js/10-app-core.js?v=20260704e" defer></script>
+    <script src="data/seed.js?v=20260705a" defer></script>
+    <script src="js/10-app-core.js?v=20260705a" defer></script>
 
 
 </head>
@@ -209,12 +209,12 @@
         </div>
     </div>
     <div id="ai-result-modal" class="modal-overlay">
-        <div class="paste-box" style="height: 75vh; max-width: 900px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
-                <h3 style="color:var(--midea-dark); font-size:18px; font-weight:800; margin:0;"><i class="fa-solid fa-brain"></i> 专家级 AI 智能分析报告</h3>
+        <div class="paste-box" style="height: 80vh; max-width: 960px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; flex-shrink:0;">
+                <h3 style="color:var(--midea-dark); font-size:18px; font-weight:800; margin:0;"><i class="fa-solid fa-brain"></i> <span id="ai-report-title">AI 智能分析报告</span></h3>
                 <button class="btn btn-danger" onclick="safeCloseModal('ai-result-modal')"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <div id="ai-result-content" class="ai-html-content" style="flex-grow:1; overflow-y:auto; padding: 20px; background: rgba(240,249,255,0.5); border-radius: 8px; border: 1px solid rgba(2,132,199,0.15);"></div>
+            <div id="ai-result-content" class="ai-html-content" style="flex-grow:1; overflow-y:auto; padding: 24px; background: rgba(240,249,255,0.5); border-radius: 8px; border: 1px solid rgba(2,132,199,0.15); word-break:break-word; overflow-wrap:break-word;"></div>
         </div>
     </div>
     <div id="kaizen-paste-modal" class="modal-overlay" onclick="if(event.target===this) safeCloseModal('kaizen-paste-modal')">
@@ -272,7 +272,7 @@
                     <span style="font-size:12px;font-weight:800;color:var(--text-main);"><i class="fa-solid fa-chart-bar"></i> AI 重复LOSS统计分析 <span id="sys-ai-summary-badge" style="font-size:11px;font-weight:600;color:var(--text-muted);margin-left:6px;"></span></span>
                     <span id="sys-ai-toggle-icon" style="font-size:14px;color:var(--text-muted);"><i class="fa-solid fa-chevron-up"></i></span>
                 </div>
-                <div id="sys-ai-repeat-result" class="ai-html-content" style="padding:10px;max-height:500px;overflow-y:auto;"></div>
+                <div id="sys-ai-repeat-result" class="ai-html-content" style="padding:10px;max-height:500px;overflow-y:auto;word-break:break-word;overflow-wrap:break-word;"></div>
             </div>
             <div class="table-wrap" style="max-height:430px; overflow-y:auto;">
                 <table class="grid sys-detail-table">

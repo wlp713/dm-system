@@ -572,14 +572,32 @@ let db = _SEED;
         function _sanitizeAIOutput(str) {
             if (!str) return '';
             // 去掉首尾的 ```html ... ``` 或 ``` ... ``` 包裹
-            return str.replace(/^\s*```(?:html)?\n?/i, '').replace(/```\s*$/i, '').trim();
+            str = str.replace(/^\s*```(?:html)?\n?/i, '').replace(/```\s*$/i, '').trim();
+            return str;
+        }
+        // ★ AI HTML 后处理:统一格式、修复断句、确保完整结构
+        function _formatAIHtml(str) {
+            if (!str) return '<div class="ai-report-empty">AI 无返回内容</div>';
+            // 如果返回的是纯文本(不含HTML标签),简单包装
+            if (!/<\/?(?:div|p|table|h[1-6]|ul|ol|li|br|span|section)/i.test(str)) {
+                str = '<p>' + str.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+            }
+            // 确保有外层容器
+            if (!/^\s*<div[^>]*class="ai-report-content"/i.test(str)) {
+                str = '<div class="ai-report-content">' + str + '</div>';
+            }
+            // 确保闭标签完整(简单尾部补充)
+            var openDivs = (str.match(/<div/g) || []).length;
+            var closeDivs = (str.match(/<\/div>/g) || []).length;
+            for (var _di = closeDivs; _di < openDivs; _di++) { str += '</div>'; }
+            return str;
         }
         // ================= AI 极速引擎 (动态模型选择) =================
         const AI_URL = "https://api.deepseek.com/v1/chat/completions";
         // ================= 新的独立知识系统提示(UPPH/精益分析场景专用) =================
         const AI_UPPH_KNOWLEDGE = '【无增量下效率提升方法论】\n\n核心逻辑：产出=人数×UPPH。当市场订单/产能上限无法提升产出绝对值时，效率突破的唯一路径是UPPH提升。\n\n一、UPPH拆解框架\nUPPH = 产出 / 投入工时\n投入工时 = 出勤工时 - 异常工时 - 非计划停工 - 换型工时 - 管理损失工时\n\n二、效率损失的七大类\n1. 设备故障损失：计划外停机，关键设备MTBF短、MTTR长\n2. 换型换线损失：SMED未执行，换型时间长(>目标)，导致产出中断\n3. 品质不良损失：不合格品返工/报废，直接侵蚀有效产出\n4. 物料短缺/等待损失：前工序/零部件供应中断导致产线等待\n5. 人员短缺/技能损失：出勤不足、新员工熟练度低、岗位分配不合理\n6. 工艺异常损失：参数设置不当、治具/设备偏移导致降速运行\n7. 管理损失：会议、早会、5S清扫等非生产活动占比过大\n\n三、提升路径（按ROI排序）\n1. 短期(0-1月)：消除设备暂停/频繁微停(Andon数据追踪)、堵住频发LOSS、班前确认标准化\n2. 中期(1-3月)：SMED换型时间降低30%、TPM自主保全降低故障频率、线平衡优化\n3. 长期(3-6月)：自动化/防错(Poka-yoke)、VSM分析消除全流程浪费、少人化项目落地\n\n四、压缩机行业特性\nPRO2装配线：冲压机→焊接机→清洗机→装配线→氦检机→冷媒机→性能测试→包装\n- 氦检泄漏是最常见的批量LOSS源\n- 装配线节拍受瓶颈工位制约，通常是焊接/氦检机\n- 停线后恢复速度取决于技术员到场MTTR\n- 夜班管理薄弱导致LOSS频次和恢复时间均高于白班\n\n五、数据关联提示\n- UPPH下降通常伴随LOSS量上升，重点关注设备故障类和物料短缺类\n- 产出持平但UPPH提升=出勤/工时减少的增效，需确认是否按实际工时计算\n- 出勤率低但UPPH上升=熟练工聚焦产出，但不可持续，需培训新员工';
         // ================= 通用分析系统提示(默认场景) =================
-        const AI_ANALYSIS_SYSTEM = '你是一个工厂数据分析助手。\n\n核心原则：\n1. 当用户给出【我的指令】时，**优先响应**该指令的要求——这是用户的直接命令，应作为主要分析目标\n2. 先执行用户指令（分析什么、对比什么、聚焦什么），再补充通用结构化输出\n3. 输出格式：按下方具体prompt的要求执行（结构化HTML报告/简洁文本等）\n4. 严禁编造数据——所有结论必须有数字支撑\n5. 语言简洁务实，符合工厂一线风格';
+        const AI_ANALYSIS_SYSTEM = '你是一个工厂数据分析助手。\n\n核心原则：\n1. 当用户给出【我的指令】时，**优先响应**该指令的要求——这是用户的直接命令，应作为主要分析目标\n2. 先执行用户指令（分析什么、对比什么、聚焦什么），再补充通用结构化输出\n3. 【输出格式铁律】必须输出**格式正确的HTML**，不能输出Markdown，不能有未闭合的HTML标签。\n   所有HTML标签必须完整配对：<div>...</div>、<p>...</p>、<table>...</table> 等\n   如果输出可能会被截断，先闭合HTML标签，确保剩余内容可正常显示\n4. 严禁编造数据——所有结论必须有数字支撑\n5. 语言简洁务实，符合工厂一线风格\n6. 使用class="ai-result-table"给表格添加样式';
         // ================= 新的精益场景提示(改善导向场景专用) =================
         const AI_IMPROVEMENT_SYSTEM = '你是一个精益生产领域的实战顾问，输出风格严谨、客观、落地。\n\n要求：\n1. 先做**数据驱动的现象分析**（占回复约60-70%），基于用户提供的数据做客观描述\n2. 再做**改善建议**（占回复约30-40%），每一条建议必须包含：\n   - 做什么（具体行动）\n   - 谁负责（责任角色）\n   - 预期效果（量化估计）\n3. 分析框架：现象描述→数据确认→根因推断→改善方向→预期效果\n4. 严禁编造数据——所有结论必须有数字支撑\n5. 语言简洁务实，符合工厂一线改善风格';
         const AI_KEY = "Bearer sk-a9f6005bf24b4c0e8d68fbd823b4f817";
@@ -632,7 +650,8 @@ let db = _SEED;
                 msgs.push({ "role": "user", "content": userContent });
                 // 推理模型（v4-flash/v4-pro/reasoner）思考过程消耗大量token，需提高默认max_tokens
                 var _isReasoning = currentModel !== 'deepseek-chat';
-                var _mt = (typeof maxTokens === 'number' && maxTokens > 0) ? maxTokens : (_isReasoning ? 2048 : 512);                const res = await fetch(AI_URL, {
+                // ★ 提高 max_tokens:分析报告需大量token输出完整HTML,deepseek-chat 用 4096,推理模型更多
+                var _mt = (typeof maxTokens === 'number' && maxTokens > 0) ? maxTokens : (_isReasoning ? 8192 : 4096);                const res = await fetch(AI_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': AI_KEY },
                     body: JSON.stringify({ model: currentModel, messages: msgs, temperature: 0.1, max_tokens: _mt })
@@ -2783,7 +2802,7 @@ let db = _SEED;
                 + '红线：只基于数据做统计，严禁编造数据。每条结论必须有数字引用。仅结尾可加一句话的建议。';
             
             const ans = await callAI_API(prompt);
-            target.innerHTML = ans || 'AI 分析失败，请稍后重试。';
+            target.innerHTML = _formatAIHtml(ans) || 'AI 分析失败，请稍后重试。';
             if (badge) badge.innerText = thisMonthLoss.length + '条LOSS已分析';
         };
         window.toggleAIReplyRepeat = function() {
@@ -2836,7 +2855,7 @@ ${probs.join('\\n')}
 - 语言：${currentLang}`;
             let ans = await callAI_API(prompt);
             btn.innerHTML = oldHtml; btn.disabled = false;
-            if(ans) { document.getElementById('ai-result-content').innerHTML = ans; document.getElementById('ai-result-modal').style.display = 'flex'; }
+            if(ans) { document.getElementById('ai-result-content').innerHTML = _formatAIHtml(ans); document.getElementById('ai-result-modal').style.display = 'flex'; }
         };
         window.aiAnalyzeLoss = async function(btn) {
             let start = document.getElementById('loss-ai-start').value; let end = document.getElementById('loss-ai-end').value;
@@ -2912,7 +2931,7 @@ ${topIssues.map(function(t,i){return (i+1)+'. ['+t.date+'] '+t.desc+' (损失:'+
 - 所有结论必须引用具体数字`;
             let ans = await callAI_API(prompt);
             btn.innerHTML = oldHtml; btn.disabled = false;
-            if(ans) { document.getElementById('ai-result-content').innerHTML = ans; document.getElementById('ai-result-modal').style.display = 'flex'; }
+            if(ans) { document.getElementById('ai-result-content').innerHTML = _formatAIHtml(ans); document.getElementById('ai-result-modal').style.display = 'flex'; }
         };
         window.aiIntelligentSummary = async function(btn) {
             let start = document.getElementById('loss-ai-start').value;
@@ -3055,7 +3074,7 @@ ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' → '+l[1].qty+'套('
             try {
                 let ans = await callAI_API(prompt);
                 if(ans) {
-                    document.getElementById('ai-result-content').innerHTML = ans;
+                    document.getElementById('ai-result-content').innerHTML = _formatAIHtml(ans);
                     document.getElementById('ai-result-modal').style.display = 'flex';
 let modalTitle = document.querySelector('#ai-result-modal .modal-overlay h3');                    if (modalTitle) modalTitle.textContent = 'AI智能总结报告';
                     showToast('fa-solid fa-check', 'AI智能总结完成');
@@ -3992,7 +4011,7 @@ ${notes || '（暂无）'}
 
                 var ans = await callAI_API(prompt);
                 if(ans) {
-                    document.getElementById('ai-result-content').innerHTML = ans;
+                    document.getElementById('ai-result-content').innerHTML = _formatAIHtml(ans);
                     document.getElementById('ai-result-modal').style.display = 'flex';
                 } else {
                     showToast('fa-solid fa-times', '分析失败');
@@ -4116,7 +4135,7 @@ ${topUnresolved.map(function(p){ return '[' + p.date + '] ' + (p.ws||'') + ' ' +
 
                 var ans = await callAI_API(prompt);
                 if(ans) {
-                    document.getElementById('ai-result-content').innerHTML = ans;
+                    document.getElementById('ai-result-content').innerHTML = _formatAIHtml(ans);
                     document.getElementById('ai-result-modal').style.display = 'flex';
                 } else {
                     showToast('fa-solid fa-times', '分析失败');
