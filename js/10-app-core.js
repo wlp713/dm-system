@@ -5,6 +5,8 @@
         const CLIENT_ID = window.CLIENT_ID;
         // ★ 直接初始化为嵌入参考数据（1-6月，泰语/英语）
 let db = _SEED;
+        // ★ 尽早设嵌入数据保护标志,在 _onFirebaseReady 触发 Firebase merge 之前就生效
+        window._EMBEDDED_DATA_ACTIVE = (Object.keys(db.prod||{}).length > 10);
         window.db = db; // ★ 全局引用
         let isAppReady = false;
         let localSaveTimeout = null;
