@@ -547,8 +547,7 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
         const DEPTS = ['Pro.1', 'Pro.2', 'Pro.3', 'Pro.4', 'Pro.5', 'Pro.6', 'PE', 'HR', 'R&D', 'PC', 'IP', 'QA'];
         // ★ 统一AI分析系统提示词：所有分析类AI调用共享此设定
         // 不自我介绍，只做数据驱动分析，仅结尾可加一句建议
-        const AI_ANALYSIS_SYSTEM = '你是美的GMCC冰箱压缩机工厂的精益分析专家，精通MBS（美的生产系统）、精益生产管理体系。\n\n【精益方法论框架】\n- MBS日常管理4.0：事前管理（排产/物料/人机料法提前检讨）→事中管理（安灯/异常每2H跟踪）→事后闭环（日周月复盘、事件升级机制）\n- PSP问题解决流程：现象→数据收集(检查表/直方图/柏拉图)→原因分析(因果图/5Why)→要因验证→对策实施→效果确认→标准化\n- TPM全员生产维护：OEE综合效率、6源查找(污染源/故障源/浪费源/缺陷源/危险源/困难源)、自主保全、计划保全\n- 标准化工作：节拍时间(T.T)、作业顺序、标准在制品(SWIP)、增值/非增值分析、人机联合作业\n- 七大浪费：过量生产/等待/搬运/过度加工/库存/动作/不良\n- 5S + 安全管理：整理/整顿/清扫/清洁/素养/安全\n- 无增量效率提升：VPPH/UPPH指标、产线平衡、瓶颈工序、少人化\n\n输出规则（严格遵守）：\n1. 只输出纯HTML代码（无markdown代码块包围、无\`\`\`html标记）\n2. 不要自我介绍，不要加前导说明文字\n3. 只基于用户提供的现有数据进行分析，严禁编造数据\n4. 所有分析必须引用具体数字\n5. 不要预测趋势或给改善建议，仅在最后一句可加简短建议\n6. 分析中需自然引用MBS精益方法论框架，结合数据说明';
-        // ================= 从AI返回内容中剥离markdown代码块包裹 =================
+'你精通精益生产、生产管理、冰箱压缩机制造工艺，熟悉美的GMCC冰箱压缩机产品，深度掌握以下精益方法论体系：\n\n【核心方法论】\n1. 无增量下效率提升（UPPH突破）：不减人前提下，通过消除MUDA（七种浪费）、标准化作业、产线平衡优化、异常工时管控、SMED快速换型、OEE综合设备效率提升等维度实现效率突破\n2. DM日常管理体系（预算→过程→闭环）：预算拆解至日/产线/班次，过程异常100%跟踪闭环，每周影响通报，日结周清月复盘；SQDIP全维度覆盖\n3. PSP问题解决流程：5W2H问题描述→真因分析（5Why/鱼骨图）→对策→跟踪→标准化\n4. MBS工具包：标准化工作(Standardized Work)、TPM自主保全、SMED快速换型、5S现场管理、价值流图(VSM)、均衡化生产\n5. 压缩机行业特性：冲压→焊接→清洗→装配→氦检→冷媒注入→性能测试→包装全流程，了解转子/定子/曲轴/气缸等核心零部件的关键控制点\n\n【输出铁律】\n1. 严禁自我介绍——直接输出分析内容，不提及"资深""专家""专业"等身份描述\n2. __70%分析驱动，30%改善建议__：先基于数据做客观分析，再基于分析结果给出可落地的改善方向\n3. 改善建议必须有三要素：做什么、谁做、预期效果——不能空喊\n4. 所有结论必须引用具体数字，严禁编造数据\n5. 输出风格=工厂实战型：专业、简洁、直接、可落地；不写论文，不绕弯子\n6. 分析结构：现象→数据→根因推断→改善方向\n7. 语言贴合用户选择，专业术语保留英文缩写(Takt, OEE, UPPH, DM, PSP, LOSS等)';
         function _sanitizeAIOutput(str) {
             if (!str) return '';
             // 去掉首尾的 ```html ... ``` 或 ``` ... ``` 包裹
@@ -556,6 +555,10 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
         }
         // ================= AI 极速引擎 (动态模型选择) =================
         const AI_URL = "https://api.deepseek.com/v1/chat/completions";
+        // ================= 新的独立知识系统提示(UPPH/精益分析场景专用) =================
+        const AI_UPPH_KNOWLEDGE = '【无增量下效率提升方法论】\n\n核心逻辑：产出=人数×UPPH。当市场订单/产能上限无法提升产出绝对值时，效率突破的唯一路径是UPPH提升。\n\n一、UPPH拆解框架\nUPPH = 产出 / 投入工时\n投入工时 = 出勤工时 - 异常工时 - 非计划停工 - 换型工时 - 管理损失工时\n\n二、效率损失的七大类\n1. 设备故障损失：计划外停机，关键设备MTBF短、MTTR长\n2. 换型换线损失：SMED未执行，换型时间长(>目标)，导致产出中断\n3. 品质不良损失：不合格品返工/报废，直接侵蚀有效产出\n4. 物料短缺/等待损失：前工序/零部件供应中断导致产线等待\n5. 人员短缺/技能损失：出勤不足、新员工熟练度低、岗位分配不合理\n6. 工艺异常损失：参数设置不当、治具/设备偏移导致降速运行\n7. 管理损失：会议、早会、5S清扫等非生产活动占比过大\n\n三、提升路径（按ROI排序）\n1. 短期(0-1月)：消除设备暂停/频繁微停(Andon数据追踪)、堵住频发LOSS、班前确认标准化\n2. 中期(1-3月)：SMED换型时间降低30%、TPM自主保全降低故障频率、线平衡优化\n3. 长期(3-6月)：自动化/防错(Poka-yoke)、VSM分析消除全流程浪费、少人化项目落地\n\n四、压缩机行业特性\nPRO2装配线：冲压机→焊接机→清洗机→装配线→氦检机→冷媒机→性能测试→包装\n- 氦检泄漏是最常见的批量LOSS源\n- 装配线节拍受瓶颈工位制约，通常是焊接/氦检机\n- 停线后恢复速度取决于技术员到场MTTR\n- 夜班管理薄弱导致LOSS频次和恢复时间均高于白班\n\n五、数据关联提示\n- UPPH下降通常伴随LOSS量上升，重点关注设备故障类和物料短缺类\n- 产出持平但UPPH提升=出勤/工时减少的增效，需确认是否按实际工时计算\n- 出勤率低但UPPH上升=熟练工聚焦产出，但不可持续，需培训新员工';
+        // ================= 新的精益场景提示(改善导向场景专用) =================
+        const AI_IMPROVEMENT_SYSTEM = '你是一个精益生产领域的实战顾问，输出风格严谨、客观、落地。\n\n要求：\n1. 先做**数据驱动的现象分析**（占回复约60-70%），基于用户提供的数据做客观描述\n2. 再做**改善建议**（占回复约30-40%），每一条建议必须包含：\n   - 做什么（具体行动）\n   - 谁负责（责任角色）\n   - 预期效果（量化估计）\n3. 分析框架：现象描述→数据确认→根因推断→改善方向→预期效果\n4. 严禁编造数据——所有结论必须有数字支撑\n5. 语言简洁务实，符合工厂一线改善风格';
         const AI_KEY = "Bearer sk-a9f6005bf24b4c0e8d68fbd823b4f817";
         function _getPreferredModel() {
             var sel = document.getElementById('ai-model-selector');
@@ -584,6 +587,9 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
                             await new Promise(resolve => setTimeout(resolve, 1500 * (retryCount + 1)));
                             return await callAI_API(prompt, retryCount + 1, systemOverride);
                         } else throw new Error("服务器当前太拥挤,重试多次后依然失败,请稍后再试。");
+                    }
+                    if (res.status === 402 || (data.error && (data.error.code === '402' || (data.error.message && data.error.message.indexOf('Insufficient') >= 0)))) {
+                        throw new Error("DeepSeek API 余额不足 (402)，请联系管理员充值或更换 API Key");
                     }
                     throw new Error(data.error?.message || "API 错误");
                 }
@@ -2612,52 +2618,110 @@ ${topIssues.map(function(t,i){return (i+1)+'. ['+t.date+'] '+t.desc+' (损失:'+
             let lineRanking = Object.entries(lineSummary)
                 .sort((a, b) => b[1].qty - a[1].qty);
 
-            // ★ 80%数据驱动分析 + 20%精益/生产/压缩机专业建议
-                        // ★ V2优化：90%数据驱动 + 10%GMCC精益洞察 · 同比环比方向
-            const prompt = `【数据全景】
-周期: ${start} ~ ${end}
-总LOSS量: ${totalLoss} 套 | 记录数: ${losses.length} 条 | 平均: ${(totalLoss / losses.length).toFixed(1)} 套/条
+            // ★ V3重写：70%数据驱动分析 + 30%精益改善建议（含无增量效率提升方法论）
+            // 计算额外分析维度
+            var _lossPerDay = losses.length > 0 ? (totalLoss / losses.length).toFixed(1) : 0;
+            var _topDept = deptRanking.length > 0 ? deptRanking[0][0] : '—';
+            var _topLine = lineRanking.length > 0 ? lineRanking[0][0] : '—';
+            var _topLossType = top3LossTypes.length > 0 ? top3LossTypes[0][0] : '—';
+            var _freqLossType = top3FrequentTypes.length > 0 ? top3FrequentTypes[0][0] : '—';
+            var _deptRatio = deptRanking.length > 0 && totalLoss > 0 ? ((deptRanking[0][1].qty / totalLoss) * 100).toFixed(0) : 0;
+            var _lineRatio = lineRanking.length > 0 && totalLoss > 0 ? ((lineRanking[0][1].qty / totalLoss) * 100).toFixed(0) : 0;
+            // 按班次统计
+            var shiftSummary = { D:0, N:0 };
+            losses.forEach(function(l){ if(l.shift === 'N') shiftSummary.N += Math.abs(safeNum(l.qty)); else shiftSummary.D += Math.abs(safeNum(l.qty)); });
+            var _nightRatio = totalLoss > 0 ? ((shiftSummary.N / totalLoss) * 100).toFixed(0) : 0;
+            var _dayRatio = totalLoss > 0 ? ((shiftSummary.D / totalLoss) * 100).toFixed(0) : 0;
 
-【TOP问题(按损失)】
-${top10Issues.map(function(issue, i){ return (i+1)+'. "'+issue.desc+'" '+issue.qty+'套 ['+issue.line+' '+issue.shift+'班 '+issue.dept+']'; }).join('\n')}
+            const prompt = `【LOSS生产异常数据全貌】
+分析周期: ${start} ~ ${end}
 
-【TOP3问题类型(按损失)】
-${top3LossTypes.map(function(t, i){ return (i+1)+'. '+t[0]+' -> '+t[1].qty+'套('+t[1].count+'次)'; }).join('\n')}
+━━━ 核心指标 ━━━
+总LOSS量: ${totalLoss} 套
+记录条数: ${losses.length} 条
+平均每单损失: ${_lossPerDay} 套
 
-【TOP3类型(按频次)】
-${top3FrequentTypes.map(function(t, i){ return (i+1)+'. '+t[0]+' -> '+t[1].count+'次('+t[1].qty+'套)'; }).join('\n')}
+━━━ 按损失量排序 TOP问题 ━━━
+${top10Issues.map(function(issue, i){ return (i+1)+'. "'+issue.desc+'" → '+issue.qty+'套 ['+issue.line+' '+issue.shift+'班 '+issue.dept+']'; }).join('\n')}
 
-【部门排名(按损失)】
-${deptRanking.map(function(d, i){ return (i+1)+'. '+d[0]+' -> '+d[1].qty+'套('+d[1].count+'次)'; }).join('\n')}
+━━━ 问题类型分析 ━━━
+按损失量 TOP3: ${top3LossTypes.map(function(t, i){ return (i+1)+'. '+t[0]+' = '+t[1].qty+'套('+t[1].count+'次)'; }).join(' | ')}
+按频次 TOP3: ${top3FrequentTypes.map(function(t, i){ return (i+1)+'. '+t[0]+' = '+t[1].count+'次('+t[1].qty+'套)'; }).join(' | ')}
+最多发类型: ${_topLossType}（损失${_freqLossType === _topLossType ? '和频次均最高' : '最高但频次最高是'+_freqLossType}）
 
-【线体排名(按损失)】
-${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+l[1].count+'次)'; }).join('\n')}
+━━━ 责任部门排名 ━━━
+${deptRanking.map(function(d, i){ return (i+1)+'. '+d[0]+' → '+d[1].qty+'套('+d[1].count+'次)'; }).join(' | ')}
+第一责任部门: ${_topDept}（占总损失 ${_deptRatio}%）
 
-请做数据驱动分析，结合MBS精益方法论（日常管理4.0事中事后逻辑、PSP问题解决、TPM设备效率、标准化工作、七大浪费）解读数据背后的管理问题。
+━━━ 线体分布 ━━━
+${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' → '+l[1].qty+'套('+l[1].count+'次)'; }).join(' | ')}
+影响最大线体: ${_topLine}（占总损失 ${_lineRatio}%）
 
-输出纯HTML，无markdown代码块，无任何前导介绍文字，直接以HTML标签开始：
-表格加class="ai-result-table"：
+━━━ 班次分析 ━━━
+白班(D): ${shiftSummary.D} 套 (${_dayRatio}%) | 夜班(N): ${shiftSummary.N} 套 (${_nightRatio}%)
 
-【报告结构】
-1. 总体罗盘：一句概述周期LOSS表现，突出总损失、平均损失、最多发部门
-2. 核心发现：TOP3数据事实，每个事实包括【现象→影响量→趋势】，并引用MBS方法论分析（如：该问题属于XX类浪费、符合PSP中的XX现象、应从TPM/标准化/5Why等维度切入）
-3. 归因聚焦：不超过3点，基于数据特征的推理，引用精益框架解读
+━━━ 分析要求 ━━━
+请基于以上LOSS数据进行专业分析，输出HTML格式(div+p+table)，表格加class="ai-result-table"：
+
+【第一部分 | 现象分析 (60%)】
+1. LOSS总体评估：总损失量、频次、日损量的现状判断，与基准/目标的差距
+2. 主导类型诊断：${_topLossType}类为何成为最大损失源？结合数据特征（单次损失量/频次/发生线体）判断是偶发大损失还是频发小损失
+3. 部门/线体归因：${_topDept}部门(${_deptRatio}%)和${_topLine}线体(${_lineRatio}%)为什么突出？从数据特征看是管理问题还是技术问题
+4. 班次差异诊断：夜班占比${_nightRatio}%，结合问题类型判断夜班是否有管理弱化倾向
+
+【第二部分 | 改善方向 (40%)】
+1. 短期止血（本周内可执行）：针对频发的同类问题（特别是${_topLossType}类和${_freqLossType !== _topLossType ? _freqLossType+'类' : '频次最高问题'}），给出具体行动——做什么、谁做、何时见效
+2. 中期根治（1-2周）：针对${_topDept}部门的责任问题，给出系统性改善方向（标准化/TPM/培训/防错等）
+3. 长期突破：基于无增量下效率提升方法论，从UPPH视角给出LOSS压降的方向
+4. 夜班管控：夜班占比${_nightRatio}%，针对夜班强化的具体措施
 
 【红线】
-- 严禁编造数据
-- 所有结论必须有数据支撑
-- 不要以"专家""专业""资深"开头或自我介绍
-- 语言: ${currentLang}`;
+- 严禁编造数据，每个数字必须源自上方数据
+- 结论必须与数据特征一致（偶发型 vs 频发型要分清）- 语言: ${currentLang}`;
 
             try {
                 let ans = await callAI_API(prompt);
                 if(ans) {
                     document.getElementById('ai-result-content').innerHTML = ans;
                     document.getElementById('ai-result-modal').style.display = 'flex';
-                    // 更新模态框标题
-                    let modalTitle = document.querySelector('#ai-result-modal .modal-content h3');
-                    if (modalTitle) modalTitle.textContent = 'AI智能总结报告';
+let modalTitle = document.querySelector('#ai-result-modal .modal-overlay h3');                    if (modalTitle) modalTitle.textContent = 'AI智能总结报告';
                     showToast('fa-solid fa-check', 'AI智能总结完成');
+                } else {
+                    // AI不可用时，生成本地模板摘要
+                    var _lang = (typeof currentLang !== 'undefined') ? currentLang : 'zh';
+                    var _deptName = deptRanking.length > 0 ? deptRanking[0][0] : '—';
+                    var _deptQty = deptRanking.length > 0 ? deptRanking[0][1].qty : 0;
+                    var _lineName = lineRanking.length > 0 ? lineRanking[0][0] : '—';
+                    var _lineQty = lineRanking.length > 0 ? lineRanking[0][1].qty : 0;
+                    var _avgLoss = (totalLoss / losses.length).toFixed(1);
+                    var fallbackHtml = '<div style="padding:16px;font-size:14px;line-height:1.8;">';
+                    fallbackHtml += '<p><strong>' + (_lang === 'th' ? 'สรุปรวม' : '📊 数据摘要') + '</strong></p>';
+                    fallbackHtml += '<table class="ai-result-table" style="width:100%;border-collapse:collapse;margin:8px 0;">';
+                    fallbackHtml += '<tr><td style="padding:6px 10px;border:1px solid #ddd;">' + (_lang === 'th' ? 'ช่วงเวลา' : '分析周期') + '</td><td style="padding:6px 10px;border:1px solid #ddd;font-weight:bold;">' + start + ' ~ ' + end + '</td></tr>';
+                    fallbackHtml += '<tr><td style="padding:6px 10px;border:1px solid #ddd;">' + (_lang === 'th' ? 'จำนวนรวม' : '总LOSS量') + '</td><td style="padding:6px 10px;border:1px solid #ddd;font-weight:bold;">' + totalLoss + ' ' + (_lang === 'th' ? 'ชิ้น' : '套') + ' (' + losses.length + ' ' + (_lang === 'th' ? 'รายการ' : '条记录') + ', ' + (_lang === 'th' ? 'เฉลี่ย' : '平均') + ' ' + _avgLoss + ')</td></tr>';
+                    fallbackHtml += '<tr><td style="padding:6px 10px;border:1px solid #ddd;">' + (_lang === 'th' ? 'แผนกที่ส่งผลมากที่สุด' : '影响最大部门') + '</td><td style="padding:6px 10px;border:1px solid #ddd;font-weight:bold;">' + _deptName + ' → ' + _deptQty + ' ' + (_lang === 'th' ? 'ชิ้น' : '套') + '</td></tr>';
+                    fallbackHtml += '<tr><td style="padding:6px 10px;border:1px solid #ddd;">' + (_lang === 'th' ? 'สายการผลิตที่ส่งผลมากที่สุด' : '影响最大线体') + '</td><td style="padding:6px 10px;border:1px solid #ddd;font-weight:bold;">' + _lineName + ' → ' + _lineQty + ' ' + (_lang === 'th' ? 'ชิ้น' : '套') + '</td></tr>';
+                    fallbackHtml += '</table>';
+                    fallbackHtml += '<p><strong>' + (_lang === 'th' ? 'TOP 3 ปัญหาตามจำนวน' : 'TOP3问题类型（按损失量）') + '</strong></p>';
+                    fallbackHtml += '<table class="ai-result-table" style="width:100%;border-collapse:collapse;margin:8px 0;">';
+                    top3LossTypes.forEach(function(t, i) {
+                        fallbackHtml += '<tr><td style="padding:4px 10px;border:1px solid #ddd;width:40px;text-align:center;">' + (i+1) + '</td><td style="padding:4px 10px;border:1px solid #ddd;">' + t[0] + '</td><td style="padding:4px 10px;border:1px solid #ddd;text-align:right;font-weight:bold;">' + t[1].qty + ' ' + (_lang === 'th' ? 'ชิ้น' : '套') + ' (' + t[1].count + 'x)</td></tr>';
+                    });
+                    fallbackHtml += '</table>';
+                    fallbackHtml += '<p><strong>' + (_lang === 'th' ? 'TOP 10 ปัญหาเฉพาะ' : 'TOP10具体问题（按损失量）') + '</strong></p>';
+                    fallbackHtml += '<table class="ai-result-table" style="width:100%;border-collapse:collapse;margin:8px 0;">';
+                    fallbackHtml += '<tr style="background:#f1f5f9;"><th style="padding:4px 8px;border:1px solid #ddd;text-align:center;width:30px;">#</th><th style="padding:4px 8px;border:1px solid #ddd;">' + (_lang === 'th' ? 'ปัญหา' : '问题') + '</th><th style="padding:4px 8px;border:1px solid #ddd;text-align:center;">' + (_lang === 'th' ? 'จำนวน' : '损失量') + '</th><th style="padding:4px 8px;border:1px solid #ddd;text-align:center;">' + (_lang === 'th' ? 'สาย' : '线体') + '</th></tr>';
+                    top10Issues.forEach(function(issue, i) {
+                        fallbackHtml += '<tr><td style="padding:3px 8px;border:1px solid #ddd;text-align:center;">' + (i+1) + '</td><td style="padding:3px 8px;border:1px solid #ddd;font-size:13px;">' + issue.desc + '</td><td style="padding:3px 8px;border:1px solid #ddd;text-align:right;font-weight:bold;">' + issue.qty + '</td><td style="padding:3px 8px;border:1px solid #ddd;text-align:center;">' + issue.line + '</td></tr>';
+                    });
+                    fallbackHtml += '</table>';
+                    fallbackHtml += '<p style="color:#94a3b8;font-size:12px;margin-top:12px;">⚠ ' + (_lang === 'th' ? 'AI ไม่สามารถใช้งานได้ชั่วคราว แสดงข้อมูลสถิติแทน' : 'AI暂时不可用，展示本地统计分析') + '</p>';
+                    fallbackHtml += '</div>';
+                    document.getElementById('ai-result-content').innerHTML = fallbackHtml;
+                    document.getElementById('ai-result-modal').style.display = 'flex';
+                    var modalTitle = document.querySelector('#ai-result-modal .modal-overlay h3');
+                    if (modalTitle) modalTitle.textContent = (_lang === 'th' ? 'รายงานสรุป (สถิติ)' : '数据总结报告（本地统计）');
+                    showToast('fa-solid fa-check', (_lang === 'th' ? 'แสดงสถิติสำเร็จ' : '已展示本地统计'));
                 }
             } catch (error) {
                 console.error('AI分析错误:', error);
@@ -3372,11 +3436,42 @@ ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+
             var lastVal = dataSummary.length > 0 ? Object.values(dataSummary[dataSummary.length-1]).reduce(function(a,b){return a+(typeof b==='number'?b:0);},0) - dataSummary[dataSummary.length-1].date : 0;
             var trendDir = lastVal > firstVal ? '上升' : (lastVal < firstVal ? '下降' : '持平');
             
-            const prompt = `【${trendLabel}趋势分析】周期:过去${trendPeriod}天 | 趋势方向:${trendDir}
+            // ★ V3重写：UPPH趋势+精益洞见+数据驱动分析
+            var _isUPPH = document.getElementById('trendMetric').value === 'upph';
+            var _wsCount = PRO_ORDER.length;
+            
+            const prompt = `【${trendLabel}趋势分析】
+分析周期: 过去${trendPeriod}天 | 趋势方向: ${trendDir}
+${_isUPPH ? '指标类型: UPPH（人均产出效率）' : ''}
+
 【数据摘要】${trendDataStr}
 
-请做【数据驱动分析】，纯文本输出，语言:${currentLang}：
+请做专业趋势分析，纯文本输出，语言:${currentLang}。
+${_isUPPH ? `
+━━━ UPPH专项分析框架 ━━━
+请运用【无增量下效率提升方法论】进行分析：
 
+一、UPPH趋势概览
+1. 整体走势：起止变化幅度、期间波峰波谷、平均值
+2. UPPH稳定性：逐日变异系数估算，判断是否存在大的波动
+3. 趋势判断：是持续改善、震荡维持还是恶化
+
+二、车间UPPH对比诊断
+1. 各车间UPPH绝对值排名：谁高谁低
+2. 车间间的UPPH差距：最大差距多大，是否在拉大
+3. 低效车间特征：持续低迷还是偶发低迷？对应日期和可能的LOSS关联
+
+三、UPPH波动归因推断（基于数据模式）
+1. 异常UPPH日对应的产出、工时、出勤数据特征
+2. 是否与特定车间的LOSS波动同步？
+3. 日/夜班效率差异——结合LOSS班次数据推断管理环节
+
+四、UPPH提升方向（基于数据模式非猜测）
+1. 短期机会：哪条线/哪些LOSS压降对UPPH提升贡献最大
+2. 中期路径：产线平衡、换型SMED、标准化作业的ROI排列
+3. 长期方向：基于数据特征判断少人化/自动化的切入点
+
+⚠ 注意：所有UPPH结论必须有具体数据支撑，严禁无数据推断` : `
 一、趋势概述：整体走势（上升/下降/波动），起止值变化幅度
 
 二、异常波动点：识别数据中的异常峰值/谷值，指出对应的日期和车间/线体
@@ -3385,7 +3480,7 @@ ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+
 
 四、可能关联因素（仅基于数据模式推断，不做猜测）：
    - 是否与排产波动、设备稼动、质量返工、物料齐套、出勤变化等相关
-   - 给出数据层面的关联证据，非臆测
+   - 给出数据层面的关联证据，非臆测`}
 
 【红线】
 - 严禁编造数据
@@ -3399,7 +3494,7 @@ ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+
             btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 生成中...`; contentBox.classList.add('ai-generating');
             let outTot = document.getElementById('rp-out-tot').innerText; let lossTot = document.getElementById('rp-loss-tot').innerText; let upphTot = document.getElementById('rp-upph-tot').innerText;
             let probInfo = db.problems.map(p => `[${p.dept}]${p.desc}(${p.status})`).join(';').substring(0, 300);
-                        // ★ V2优化：数据驱动经营复盘
+                        // ★ V3重写：经营复盘 + UPPH/LOSS/人力三维联动
             const prompt = `【宏观经营数据】
 - PRO2总产出: ${outTot}
 - PRO2整体UPPH: ${upphTot}
@@ -3408,21 +3503,245 @@ ${lineRanking.map(function(l, i){ return (i+1)+'. '+l[0]+' -> '+l[1].qty+'套('+
 
 请做【数据驱动经营复盘】，输出HTML(<h3>,<ul>,<li>,<strong>)，无Markdown：
 
-一、经营指标达成综述（基于数据）：
-   产出、UPPH、出勤、DM/PSP闭环各指标的数值表现和趋势判断
-   各指标之间的联动关系（如产出与LOSS的对应）
+一、经营指标达成综述
+1. 产出/效率：成品产出${outTot}、UPPH${upphTot}的表现，与预算/目标差距
+2. 损失诊断：Missing Qty ${lossTot}的占比分析和趋势判断
+3. 异常复盘：${probInfo.substring(0,200)}反映的主要问题类型和频次特征
 
-二、Missing Qty分析（基于数据）：
-   对交付影响的程度评估
-   从数据看瓶颈工序和班次稳定性
+二、LOSS-UPPH联动分析
+1. Missing Qty如何影响UPPH？每100套LOSS约对应多少UPPH下降
+2. 产出不变但UPPH变化：检查工时波动——是否来自有效工时增减还是非计划停工
+3. 人力效率分析：出勤人数与UPPH的对应关系——人数多≠效率高
+
+三、改善方向建议
+1. 短期止血（1周内）：锁定TOP LOSS类型，压降预计可提升UPPH约X%
+2. 中期改善（1月）：基于数据特征推荐TPM/标准化/5S方向
+3. 长期突破（3月+）：少人化/自动化切入点判断
 
 【红线】
 - 严禁编造数据
-- 每条结论必须引用具体数字`;
+- 每条结论必须引用具体数字
+- 语言: ${currentLang}`;
             let summary = await callAI_API(prompt);
             btn.innerHTML = `<i class="fa-solid fa-robot"></i> 重新生成`; contentBox.classList.remove('ai-generating');
             if(summary) { contentBox.innerHTML = summary; } else { contentBox.innerHTML = "生成失败"; }
         };
+
+        // ================= AI 看板分析 (p-monitor) =================
+        window.aiAnalyzeMonitor = async function() {
+            var btn = event && event.target ? (event.target.classList.contains('btn') ? event.target : event.target.closest('.btn')) : document.querySelector('[onclick*="aiAnalyzeMonitor"]');
+            if(!btn) btn = document.querySelector('button:has(.fa-brain)');
+            if(btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 分析中...'; btn.disabled = true; }
+
+            try {
+                var today = document.getElementById('globalDate') ? document.getElementById('globalDate').value : new Date().toISOString().slice(0,10);
+                var gat = safeNum(document.getElementById('kpiGat').innerText);
+                var missing = safeNum(document.getElementById('kpiMissing').innerText);
+
+                // 收集各车间UPPH排名数据
+                var rankItems = document.querySelectorAll('#monitorRank .rank-item');
+                var rankData = [];
+                rankItems.forEach(function(item) {
+                    var nameEl = item.querySelector('.rank-name');
+                    var valEl = item.querySelector('.rank-val');
+                    if(nameEl && valEl) rankData.push(nameEl.innerText.trim() + '=' + valEl.innerText.trim());
+                });
+
+                // 收集产线数据
+                var shiftRows = document.querySelectorAll('#shiftBody tr');
+                var shiftData = [];
+                shiftRows.forEach(function(row) {
+                    var cells = row.querySelectorAll('td');
+                    if(cells.length >= 10) {
+                        shiftData.push({
+                            line: cells[0].innerText.trim(),
+                            shift: cells[1].innerText.trim(),
+                            target: cells[2].innerText.trim(),
+                            actual: cells[3].innerText.trim(),
+                            rate: cells[4].innerText.trim()
+                        });
+                    }
+                });
+
+                var notes = document.getElementById('prodNotes') ? document.getElementById('prodNotes').value : '';
+
+                var prompt = `【每日生产看板数据】
+日期: ${today}
+PRO2产出: ${gat} 台
+PRO2差异(Missing): ${missing} 台
+
+【UPPH排名】
+${rankData.join('\n') || '（暂无数据）'}
+
+【产线达成】
+${shiftData.map(function(r){ return r.line + ' ' + r.shift + '班 → 目标' + r.target + ' 实际' + r.actual + ' 达成率' + r.rate; }).join('\n') || '（暂无数据）'}
+
+【重点异常备注】
+${notes || '（暂无）'}
+
+请做专业的生产看板分析，输出HTML格式，不要Markdown：
+
+一、📊 当日产出评估
+1. 总产出${gat}台，差异${missing}台，对达成率的影响
+2. 各产线达成率高低排序，突出低于目标的产线
+
+二、🔍 UPPH排名分析
+1. 各车间UPPH比较，最高/最低差异分析
+2. 从精益视角判断UPPH是否合理
+
+三、⚠️ 综合诊断
+1. Missing Qty与UPPH的联动分析：missing增加对UPPH的拖累
+2. 夜班/白班效率对比
+3. 根据备注信息（如有）给出改善切入点
+
+四、🎯 改善建议
+1. 短期止血（1-2天内可执行）
+2. 中期改善（1周）
+
+【红线】
+- 严禁编造数据，每个数字必须来自上方数据
+- 输出简洁务实，直达问题本质
+- 语言: ${window.currentLang || 'zh'}`;
+
+                var ans = await callAI_API(prompt);
+                if(ans) {
+                    document.getElementById('ai-result-content').innerHTML = ans;
+                    document.getElementById('ai-result-modal').style.display = 'flex';
+                } else {
+                    showToast('fa-solid fa-times', '分析失败');
+                }
+            } catch(e) {
+                console.error('aiAnalyzeMonitor error:', e);
+                showToast('fa-solid fa-times', '分析异常: '+e.message);
+            } finally {
+                if(btn) { btn.innerHTML = '<i class="fa-solid fa-brain"></i> AI看板分析'; btn.disabled = false; }
+            }
+        };
+
+        // ================= AI 闭环分析 (p-dm) =================
+        window.aiAnalyzeDM = async function() {
+            var btn = event && event.target ? (event.target.classList.contains('btn') ? event.target : event.target.closest('.btn')) : document.querySelector('[onclick*="aiAnalyzeDM"]');
+            if(btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 分析中...'; btn.disabled = true; }
+
+            try {
+                // 获取当前筛选下的PSP数据
+                var start = document.getElementById('psp-ai-start') ? document.getElementById('psp-ai-start').value : '';
+                var end = document.getElementById('psp-ai-end') ? document.getElementById('psp-ai-end').value : '';
+                if(!start) start = '2026-01-01';
+                if(!end) end = new Date().toISOString().slice(0,10);
+
+                // 从db.problems中统计
+                var problems = (window.db && window.db.problems) ? window.db.problems : [];
+                var filtered = problems.filter(function(p){ return p.date >= start && p.date <= end; });
+
+                var total = filtered.length;
+                var closed = filtered.filter(function(p){ return p.status === '已解决' || p.status === 'Closed'; }).length;
+                var inProgress = filtered.filter(function(p){ return p.status === '处理中' || p.status === 'In Progress' || p.status === '未解决'; }).length;
+                var closureRate = total > 0 ? ((closed / total) * 100).toFixed(1) : 0;
+
+                // 车间分布
+                var wsSummary = {};
+                filtered.forEach(function(p){
+                    var ws = p.ws || p.workshop || '—';
+                    if(!wsSummary[ws]) wsSummary[ws] = { total:0, closed:0 };
+                    wsSummary[ws].total++;
+                    if(p.status === '已解决' || p.status === 'Closed') wsSummary[ws].closed++;
+                });
+
+                // 责任部门分布
+                var deptSummary = {};
+                filtered.forEach(function(p){
+                    var dept = p.dept || '—';
+                    if(!deptSummary[dept]) deptSummary[dept] = 0;
+                    deptSummary[dept]++;
+                });
+
+                // 问题类型分析(按描述关键词)
+                var typeKeywords = { '设备故障':['motor','sensor','alarm','break','หัว','stator','conveyor','สายพาน','รูด','broken'], '品质问题':['DV','leak','kv','ช๊อต','รั่ว','ng','qa','rework'], '物料/供应':['stock','conveyor น้อย','material'], '人员/管理':['พนักงาน','support','ไม่ครบ','headcount'], '工艺':['oven','อุณหภูมิ','温度','jig','調整','ปรับ'], '换型/换线':['เปลี่ยนรุ่น','smad','setup','ปรับเซ็ต'] };
+                var typeSummary = {};
+                filtered.forEach(function(p){
+                    var desc = (p.desc || p.description || '').toLowerCase();
+                    var matched = false;
+                    for(var tk in typeKeywords) {
+                        if(typeKeywords[tk].some(function(kw){ return desc.indexOf(kw) >= 0; })) {
+                            if(!typeSummary[tk]) typeSummary[tk] = 0;
+                            typeSummary[tk]++;
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if(!matched) {
+                        if(!typeSummary['其他']) typeSummary['其他'] = 0;
+                        typeSummary['其他']++;
+                    }
+                });
+
+                var typeRanking = Object.entries(typeSummary).sort(function(a,b){ return b[1] - a[1]; });
+                var deptRanking = Object.entries(deptSummary).sort(function(a,b){ return b[1] - a[1]; });
+                var wsRanking = Object.entries(wsSummary).sort(function(a,b){ return b[1].total - a[1].total; });
+
+                // 逾期未关闭问题
+                var unresolved = filtered.filter(function(p){ return p.status !== '已解决' && p.status !== 'Closed'; });
+                var topUnresolved = unresolved.sort(function(a,b){ return a.date < b.date ? -1 : 1; }).slice(0, 5);
+
+                var prompt = `【异常问题闭环(PSP)数据集】
+筛选周期: ${start} ~ ${end}
+
+━━━ 宏观指标 ━━━
+总问题数: ${total} 条
+已闭环: ${closed} 条
+处理中/未关闭: ${inProgress} 条
+闭环率: ${closureRate}%
+
+━━━ 车间分布 ━━━
+${wsRanking.map(function(w){ return w[0] + ' → 共' + w[1].total + '条(已闭环' + w[1].closed + '条 闭环率' + (w[1].total > 0 ? ((w[1].closed/w[1].total)*100).toFixed(1) : 0) + '%)'; }).join('\n')}
+
+━━━ 责任部门分布 ━━━
+${deptRanking.map(function(d){ return d[0] + ' → ' + d[1] + '条'; }).join('\n')}
+
+━━━ 问题类型分布 ━━━
+${typeRanking.map(function(t){ return t[0] + ' → ' + t[1] + '条'; }).join('\n')}
+
+━━━ 未闭环问题(TOP5) ━━━
+${topUnresolved.map(function(p){ return '[' + p.date + '] ' + (p.ws||'') + ' ' + (p.desc||p.description||'').substring(0,50) + ' → 跟进:' + (p.owner||'—') + ' 部门:' + (p.dept||'—'); }).join('\n') || '（无不闭环问题）'}
+
+请做专业DM闭环分析，输出HTML格式，不要Markdown：
+
+一、🏆 闭环健康度评估
+1. 总闭环率${closureRate}%，与目标(90%+)差距判断
+2. 各车间闭环率对比，最低车间诊断
+3. 当前趋势预判
+
+二、📋 问题画像
+1. TOP问题类型：${typeRanking.length > 0 ? typeRanking[0][0] : '—'}类最多(${typeRanking.length > 0 ? typeRanking[0][1] : 0}条)，从DP(问题预防)视角分析是否为重复问题
+2. 责任部门聚焦：${deptRanking.length > 0 ? deptRanking[0][0] : '—'}部门问题最多——是技术能力不足还是管理流程缺失？
+3. 未闭环问题逾期分析：未关闭问题数量和典型问题
+
+三、💡 PSP改善建议
+1. 针对未闭环问题：每一条建议必须包含做什么、谁做、期限
+2. 降低同类问题复发：从PSP→标准化→防错(Poka-yoke)的路径建议
+3. DM闭环机制优化：基于当前数据特征推荐的DM管控频率和责任人机制
+
+【红线】
+- 严禁编造数据，每个数字必须来自上方数据
+- 输出简洁实战，不写论文
+- 语言: ${window.currentLang || 'zh'}`;
+
+                var ans = await callAI_API(prompt);
+                if(ans) {
+                    document.getElementById('ai-result-content').innerHTML = ans;
+                    document.getElementById('ai-result-modal').style.display = 'flex';
+                } else {
+                    showToast('fa-solid fa-times', '分析失败');
+                }
+            } catch(e) {
+                console.error('aiAnalyzeDM error:', e);
+                showToast('fa-solid fa-times', '分析异常: '+e.message);
+            } finally {
+                if(btn) { btn.innerHTML = '<i class="fa-solid fa-list-check"></i> AI闭环分析'; btn.disabled = false; }
+            }
+        };
+
         // ================= 基础交互辅助与拖拽 =================
         window.handleDragOver = function(e) {
             e.preventDefault();

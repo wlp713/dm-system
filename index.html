@@ -159,7 +159,7 @@
     </script>
 
     <!-- 模块加载 (defer 顺序执行) -->
-    <script src="js/10-app-core.js?v=20260702" defer></script>
+    <script src="js/10-app-core.js?v=20260704" defer></script>
 
 
 </head>
@@ -521,6 +521,7 @@
                     <h2 id="dash-dynamic-title" class="dash-title" style="margin-bottom:0; font-size:26px; font-weight:900; text-align:center; flex:2; letter-spacing:2px; color:var(--midea-dark);">2026年5月3日 产出效率达成情况</h2>
                     <div style="flex:1; text-align:right; display:flex; gap:8px; justify-content:flex-end;">
                         <button class="btn" id="monitorTargetToggleBtn" onclick="toggleMonitorTarget()" style="font-size:13px; padding:8px 18px; background:linear-gradient(135deg,#e67e22,#f39c12); color:white; border:none;"><i class="fa-solid fa-bullseye"></i> 目标管理</button>
+                        <button class="btn btn-ai" onclick="aiAnalyzeMonitor()" style="font-size:13px; padding:8px 18px;"><i class="fa-solid fa-brain"></i> AI看板分析</button>
                         <button class="btn btn-success" onclick="exportMonitorPoster()" style="font-size:13px; padding:8px 18px;"><i class="fa-solid fa-file-image"></i> 导出海报</button>
                     </div>
                 </div>
@@ -607,6 +608,7 @@
                             <button type="button" class="btn-date-quick" onclick="setQuickDateRange('psp-ai-start','psp-ai-end','month')" style="background:#10b981;color:white;border:1px solid rgba(255,255,255,0.3);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;" data-i18n="date_this_month">本月</button>
                             <button class="btn btn-export" onclick="window.exportPSPToExcel()" style="background:var(--success);color:white;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"><i class="fa-solid fa-file-excel"></i> 导出Excel</button>
                             <button class="btn" onclick="window.generatePSPCompactReport()" style="background:#8b5cf6;color:white;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"><i class="fa-solid fa-image"></i> <span data-i18n="btn_psp_report">问题点闭环通报</span></button>
+                            <button class="btn btn-ai" onclick="aiAnalyzeDM()"><i class="fa-solid fa-list-check"></i> AI闭环分析</button>
                             <button class="btn btn-primary" onclick="window.addProblem()"><i class="fa-solid fa-plus"></i> <span data-i18n="btn_add">新增异常</span></button>
                         </div>
                     </div>
