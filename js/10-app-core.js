@@ -366,6 +366,10 @@ let db = _SEED;
             if (!cloudDb || typeof cloudDb !== 'object') return;
             // ★ 深度清理云端数据中所有不合法 key,防止污染本地 db
             sanitizeForFirebase(cloudDb, 'mergeCloudData');
+            // ★ 嵌入数据保护：当页面由嵌入数据初始化时，禁止云端覆盖 prod/dm（见MEMORY.md全程还原）
+            //   这两字段被 direct assignment 直接替换，一旦 merge 触发就全量覆盖所有删除操作
+            //   双重保护：调用方（on('value') + initApp）已检查 flag，这里再做一次兜底
+            var _embeddedProtection = window._EMBEDDED_DATA_ACTIVE;
             // 只有当云端数据有效(非空)时才合并
             if (cloudDb.dLinesConfig && Object.keys(cloudDb.dLinesConfig).length > 0) db.dLinesConfig = cloudDb.dLinesConfig;
             if (cloudDb.problems && Array.isArray(cloudDb.problems)) {
@@ -407,8 +411,22 @@ let db = _SEED;
                 });
             }
             if (cloudDb.memo !== undefined && cloudDb.memo !== null) db.memo = cloudDb.memo;
-            if (cloudDb.prod && Object.keys(cloudDb.prod).length > 0) db.prod = cloudDb.prod;
-            if (cloudDb.dm && Object.keys(cloudDb.dm).length > 0) db.dm = cloudDb.dm;
+            // ★ 嵌入保护：不直接替换 prod/dm，改用天数级深度合并（本地删除的 key 不会被云端恢复）
+            if (!_embeddedProtection && cloudDb.prod && Object.keys(cloudDb.prod).length > 0) {
+                db.prod = cloudDb.prod;
+            } else if (_embeddedProtection && cloudDb.prod) {
+                // prod 用 key-by-key 合并：只补充云端有、本地没有的天数
+                Object.keys(cloudDb.prod).forEach(function(d) {
+                    if (!db.prod[d]) db.prod[d] = cloudDb.prod[d];
+                });
+            }
+            if (!_embeddedProtection && cloudDb.dm && Object.keys(cloudDb.dm).length > 0) {
+                db.dm = cloudDb.dm;
+            } else if (_embeddedProtection && cloudDb.dm) {
+                Object.keys(cloudDb.dm).forEach(function(d) {
+                    if (!db.dm[d]) db.dm[d] = cloudDb.dm[d];
+                });
+            }
             if (cloudDb.sysOps && Object.keys(cloudDb.sysOps).length > 0) db.sysOps = cloudDb.sysOps;
             // ★ 保存到本地前也清理不合法 key(防止 localStorage 中也写入脏数据)
             sanitizeForFirebase(db, 'localStorageSave');
