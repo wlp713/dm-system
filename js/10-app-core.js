@@ -560,22 +560,30 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
         // ================= 新的精益场景提示(改善导向场景专用) =================
         const AI_IMPROVEMENT_SYSTEM = '你是一个精益生产领域的实战顾问，输出风格严谨、客观、落地。\n\n要求：\n1. 先做**数据驱动的现象分析**（占回复约60-70%），基于用户提供的数据做客观描述\n2. 再做**改善建议**（占回复约30-40%），每一条建议必须包含：\n   - 做什么（具体行动）\n   - 谁负责（责任角色）\n   - 预期效果（量化估计）\n3. 分析框架：现象描述→数据确认→根因推断→改善方向→预期效果\n4. 严禁编造数据——所有结论必须有数字支撑\n5. 语言简洁务实，符合工厂一线改善风格';
         const AI_KEY = "Bearer sk-a9f6005bf24b4c0e8d68fbd823b4f817";
+        // ★ 读取AI自然语言指令（全局输入框）
+        function _getAICommand() {
+            var el = document.getElementById('ai-user-command');
+            if(!el) return '';
+            var val = el.value.trim();
+            return val ? '\n\n【我的额外指令】\n' + val : '';
+        }
         function _getPreferredModel() {
             var sel = document.getElementById('ai-model-selector');
             return sel ? sel.value : 'deepseek-chat';
         }
-        async function callAI_API(prompt, retryCount = 0, systemOverride, maxTokens) {
+        async function callAI_API(prompt, retryCount = 0, systemOverride, maxTokens, skipCommand) {
             try {
                 var currentModel = _getPreferredModel();
                 var msgs = [];
                 if (systemOverride !== false) {
                     msgs.push({ "role": "system", "content": systemOverride || AI_ANALYSIS_SYSTEM });
                 }
-                msgs.push({ "role": "user", "content": prompt });
+                // ★ 自动注入用户自然语言指令（来自全局AI指令栏），纯数据解析任务可跳过
+                var _userCmd = skipCommand ? '' : _getAICommand();
+                msgs.push({ "role": "user", "content": prompt + _userCmd });
                 // 推理模型（v4-flash/v4-pro/reasoner）思考过程消耗大量token，需提高默认max_tokens
                 var _isReasoning = currentModel !== 'deepseek-chat';
-                var _mt = (typeof maxTokens === 'number' && maxTokens > 0) ? maxTokens : (_isReasoning ? 2048 : 512);
-                const res = await fetch(AI_URL, {
+                var _mt = (typeof maxTokens === 'number' && maxTokens > 0) ? maxTokens : (_isReasoning ? 2048 : 512);                const res = await fetch(AI_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': AI_KEY },
                     body: JSON.stringify({ model: currentModel, messages: msgs, temperature: 0.1, max_tokens: _mt })
@@ -585,7 +593,7 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
                     if (res.status === 429 || (data.error && data.error.code === '429')) {
                         if (retryCount < 3) {
                             await new Promise(resolve => setTimeout(resolve, 1500 * (retryCount + 1)));
-                            return await callAI_API(prompt, retryCount + 1, systemOverride);
+                            return await callAI_API(prompt, retryCount + 1, systemOverride, undefined, skipCommand);
                         } else throw new Error("服务器当前太拥挤,重试多次后依然失败,请稍后再试。");
                     }
                     if (res.status === 402 || (data.error && (data.error.code === '402' || (data.error.message && data.error.message.indexOf('Insufficient') >= 0)))) {
@@ -815,7 +823,7 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
             4. 纯数字字段:target, output, hours, att, head。
             仅输出 JSON 数组,例如:[{"date":"","ws":"","line":"","target":0,"output":0,"hours":0,"att":0,"head":0}]
             不要Markdown。数据:\n${rawText}`;
-            let aiJsonStr = await callAI_API(prompt, 0, false); // data task, no system prompt
+            let aiJsonStr = await callAI_API(prompt, 0, false, undefined, true); // data task, no system prompt, skip user command
             btn.innerHTML = originalHtml; btn.disabled = false;
             if(aiJsonStr) {
                 try {
@@ -3777,9 +3785,7 @@ ${topUnresolved.map(function(p){ return '[' + p.date + '] ' + (p.ws||'') + ' ' +
             if(!text) return text;
             const tMap = {zh:'中文', en:'英文', th:'泰文(Thai)'};
             const prompt = `直接输出翻译结果,无解释。将此内容翻译为${tMap[langCode]}:\n${text}`;
-            let trans = await callAI_API(prompt, 0, false); // translation task, no system prompt
-            return trans;
-        }
+let trans = await callAI_API(prompt, 0, false, undefined, true); // translation task, no system prompt, skip user command        }
         window.aiTranslateAllProblems = async function(btn) { if(!btn) btn = document.querySelector('.btn-ai[onclick*="aiTranslateAllProblems"]'); if(!btn) return; if(btn.disabled) return; var oldHtml = btn.innerHTML; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 翻译中...'; btn.disabled = true; try { var toT = (db.problems||[]).filter(function(p){ return p.desc && /[\u0E00-\u0E7F]/.test(p.desc); }); if(toT.length === 0) { showToast('fa-solid fa-info-circle', '未检测到泰语内容'); btn.innerHTML = oldHtml; btn.disabled = false; return; } var count = 0; for(var i = 0; i < toT.length; i++) { var orig = toT[i].desc; var t = await executePureTranslation(orig, 'zh'); if(t && t !== orig) { toT[i]._origDesc = toT[i]._origDesc || orig; toT[i].desc = t; count++; } } triggerAutoSave(); renderPDCA(); showToast('fa-solid fa-check', '已翻译 '+count+' 条'); } catch(e) { showToast('fa-solid fa-xmark', '翻译失败: '+e.message); } btn.innerHTML = oldHtml; btn.disabled = false; };
         window.aiTranslateLossProblems = async function(btn) { if(!btn) btn = document.querySelector('.btn-ai[onclick*="aiTranslateLossProblems"]'); if(!btn) return; if(btn.disabled) return; var oldHtml = btn.innerHTML; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 翻译中...'; btn.disabled = true; try { var toT = (db.loss||[]).filter(function(p){ return p.desc && /[\u0E00-\u0E7F]/.test(p.desc); }); if(toT.length === 0) { showToast('fa-solid fa-info-circle', '未检测到泰语内容,无需翻译'); btn.innerHTML = oldHtml; btn.disabled = false; return; } var count = 0; for(var i = 0; i < toT.length; i++) { var originalDesc = toT[i].desc; var translated = await executePureTranslation(originalDesc, 'zh'); if(translated && translated !== originalDesc) { toT[i]._origDesc = toT[i]._origDesc || originalDesc; toT[i].desc = translated; count++; } } triggerAutoSave(); renderLoss(); showToast('fa-solid fa-check', '已翻译 '+count+' 条记录(按 CTRL+Z 可撤回至原始泰语)'); } catch(e) { showToast('fa-solid fa-xmark', '翻译失败: '+e.message); } btn.innerHTML = oldHtml; btn.disabled = false; };
         window.undoTranslateLoss = function() { var undone = 0; (db.loss||[]).forEach(function(p){ if(p._origDesc) { p.desc = p._origDesc; delete p._origDesc; undone++; } }); if(undone > 0) { triggerAutoSave(); renderLoss(); showToast('fa-solid fa-rotate-left', '已撤回 '+undone+' 条记录到原始泰语'); } else { showToast('fa-solid fa-info-circle', '没有可撤回的翻译记录'); } };

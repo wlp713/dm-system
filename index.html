@@ -385,6 +385,14 @@
                 <input type="date" id="globalDate" value="" style="border:1px solid rgba(2,132,199,0.2); padding:4px 10px; border-radius:6px; outline:none; color:var(--text-main); font-weight:800; font-family:inherit; font-size:13px !important; background:white; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);" onchange="handleDateChange()">
             </div>
         </header>
+        <!-- ★ AI 自然语言指令栏（全局，所有AI分析共享） -->
+        <div class="ai-command-bar" style="padding:0 20px; margin:0 0 6px 0; display:flex; gap:10px; align-items:center; background:linear-gradient(90deg,rgba(2,132,199,0.04),rgba(139,92,246,0.04)); border-bottom:1px solid rgba(2,132,199,0.08);">
+            <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--midea-blue); font-size:13px;"></i>
+            <input type="text" id="ai-user-command" placeholder="给AI下指令（可选）例如：重点分析设备故障对UPPH的影响、对比白班夜班差距、给出夜班管理改善建议..."
+                style="flex:1; border:none; background:transparent; padding:8px 6px; font-size:13px; color:var(--text-main); outline:none; font-family:inherit;"
+                onkeydown="if(event.key==='Enter'){event.target.blur(); var btn=document.querySelector('.btn-ai:not(:disabled)'); if(btn) btn.click();}">
+            <button class="btn-cr-close" onclick="document.getElementById('ai-user-command').value=''; document.getElementById('ai-user-command').focus();" style="border:none; background:none; color:var(--text-muted); font-size:14px; cursor:pointer; padding:4px;" title="清空指令"><i class="fa-solid fa-xmark"></i></button>
+        </div>
         <div class="page-container">
             <div id="p-input" class="page active">
                 <div class="card" style="flex-grow:1; margin:0; display:flex; flex-direction:column; overflow:hidden;">
