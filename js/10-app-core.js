@@ -3930,7 +3930,7 @@ ${_isUPPH ? `
             } finally {
                 btn.innerHTML = `<i class="fa-solid fa-robot"></i> 重新生成`; contentBox.classList.remove('ai-generating');
             }
-            if(summary) { contentBox.innerHTML = summary; } else { contentBox.innerHTML = "生成失败"; }
+            if(summary) { contentBox.innerHTML = _formatAIHtml(summary); } else { contentBox.innerHTML = "生成失败"; }
         };
 
         // ================= AI 看板分析 (p-monitor) =================
