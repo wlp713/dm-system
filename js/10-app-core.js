@@ -557,6 +557,8 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
         const AI_URL = "https://api.deepseek.com/v1/chat/completions";
         // ================= 新的独立知识系统提示(UPPH/精益分析场景专用) =================
         const AI_UPPH_KNOWLEDGE = '【无增量下效率提升方法论】\n\n核心逻辑：产出=人数×UPPH。当市场订单/产能上限无法提升产出绝对值时，效率突破的唯一路径是UPPH提升。\n\n一、UPPH拆解框架\nUPPH = 产出 / 投入工时\n投入工时 = 出勤工时 - 异常工时 - 非计划停工 - 换型工时 - 管理损失工时\n\n二、效率损失的七大类\n1. 设备故障损失：计划外停机，关键设备MTBF短、MTTR长\n2. 换型换线损失：SMED未执行，换型时间长(>目标)，导致产出中断\n3. 品质不良损失：不合格品返工/报废，直接侵蚀有效产出\n4. 物料短缺/等待损失：前工序/零部件供应中断导致产线等待\n5. 人员短缺/技能损失：出勤不足、新员工熟练度低、岗位分配不合理\n6. 工艺异常损失：参数设置不当、治具/设备偏移导致降速运行\n7. 管理损失：会议、早会、5S清扫等非生产活动占比过大\n\n三、提升路径（按ROI排序）\n1. 短期(0-1月)：消除设备暂停/频繁微停(Andon数据追踪)、堵住频发LOSS、班前确认标准化\n2. 中期(1-3月)：SMED换型时间降低30%、TPM自主保全降低故障频率、线平衡优化\n3. 长期(3-6月)：自动化/防错(Poka-yoke)、VSM分析消除全流程浪费、少人化项目落地\n\n四、压缩机行业特性\nPRO2装配线：冲压机→焊接机→清洗机→装配线→氦检机→冷媒机→性能测试→包装\n- 氦检泄漏是最常见的批量LOSS源\n- 装配线节拍受瓶颈工位制约，通常是焊接/氦检机\n- 停线后恢复速度取决于技术员到场MTTR\n- 夜班管理薄弱导致LOSS频次和恢复时间均高于白班\n\n五、数据关联提示\n- UPPH下降通常伴随LOSS量上升，重点关注设备故障类和物料短缺类\n- 产出持平但UPPH提升=出勤/工时减少的增效，需确认是否按实际工时计算\n- 出勤率低但UPPH上升=熟练工聚焦产出，但不可持续，需培训新员工';
+        // ================= 通用分析系统提示(默认场景) =================
+        const AI_ANALYSIS_SYSTEM = '你是一个工厂数据分析助手。\n\n核心原则：\n1. 当用户给出【我的指令】时，**优先响应**该指令的要求——这是用户的直接命令，应作为主要分析目标\n2. 先执行用户指令（分析什么、对比什么、聚焦什么），再补充通用结构化输出\n3. 输出格式：按下方具体prompt的要求执行（结构化HTML报告/简洁文本等）\n4. 严禁编造数据——所有结论必须有数字支撑\n5. 语言简洁务实，符合工厂一线风格';
         // ================= 新的精益场景提示(改善导向场景专用) =================
         const AI_IMPROVEMENT_SYSTEM = '你是一个精益生产领域的实战顾问，输出风格严谨、客观、落地。\n\n要求：\n1. 先做**数据驱动的现象分析**（占回复约60-70%），基于用户提供的数据做客观描述\n2. 再做**改善建议**（占回复约30-40%），每一条建议必须包含：\n   - 做什么（具体行动）\n   - 谁负责（责任角色）\n   - 预期效果（量化估计）\n3. 分析框架：现象描述→数据确认→根因推断→改善方向→预期效果\n4. 严禁编造数据——所有结论必须有数字支撑\n5. 语言简洁务实，符合工厂一线改善风格';
         const AI_KEY = "Bearer sk-a9f6005bf24b4c0e8d68fbd823b4f817";
@@ -565,7 +567,7 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
             var el = document.getElementById('ai-user-command');
             if(!el) return '';
             var val = el.value.trim();
-            return val ? '\n\n【我的额外指令】\n' + val : '';
+            return val || '';
         }
         // ★ 提交全局AI指令：找到当前页面可见的AI按钮并触发
         function _submitGlobalAICommand() {
@@ -604,7 +606,9 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
                 }
                 // ★ 自动注入用户自然语言指令（来自全局AI指令栏），纯数据解析任务可跳过
                 var _userCmd = skipCommand ? '' : _getAICommand();
-                msgs.push({ "role": "user", "content": prompt + _userCmd });
+                // ★ 用户指令放prompt前面，确保AI优先响应
+                var userContent = _userCmd ? '【我的指令】' + _userCmd + '\n\n请优先响应以上指令，再按以下数据分析需求执行：\n\n' + prompt : prompt;
+                msgs.push({ "role": "user", "content": userContent });
                 // 推理模型（v4-flash/v4-pro/reasoner）思考过程消耗大量token，需提高默认max_tokens
                 var _isReasoning = currentModel !== 'deepseek-chat';
                 var _mt = (typeof maxTokens === 'number' && maxTokens > 0) ? maxTokens : (_isReasoning ? 2048 : 512);                const res = await fetch(AI_URL, {
