@@ -390,7 +390,8 @@
             <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--midea-blue); font-size:13px;"></i>
             <input type="text" id="ai-user-command" placeholder="给AI下指令（可选）例如：重点分析设备故障对UPPH的影响、对比白班夜班差距、给出夜班管理改善建议..."
                 style="flex:1; border:none; background:transparent; padding:8px 6px; font-size:13px; color:var(--text-main); outline:none; font-family:inherit;"
-                onkeydown="if(event.key==='Enter'){event.target.blur(); var btn=document.querySelector('.btn-ai:not(:disabled)'); if(btn) btn.click();}">
+                onkeydown="if(event.key==='Enter'){_submitGlobalAICommand();}">
+            <button onclick="_submitGlobalAICommand()" style="border:none; background:var(--midea-blue); color:white; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; white-space:nowrap;" title="发送指令"><i class="fa-solid fa-paper-plane"></i> 发送</button>
             <button class="btn-cr-close" onclick="document.getElementById('ai-user-command').value=''; document.getElementById('ai-user-command').focus();" style="border:none; background:none; color:var(--text-muted); font-size:14px; cursor:pointer; padding:4px;" title="清空指令"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="page-container">

@@ -567,6 +567,30 @@ let db = {"prod":{"2026-01-03":{"PRO1":{"t":6000,"o":1322,"h":671.7,"att":113,"h
             var val = el.value.trim();
             return val ? '\n\n【我的额外指令】\n' + val : '';
         }
+        // ★ 提交全局AI指令：找到当前页面可见的AI按钮并触发
+        function _submitGlobalAICommand() {
+            var input = document.getElementById('ai-user-command');
+            var cmd = input ? input.value.trim() : '';
+            if(!cmd) {
+                showToast('fa-solid fa-info-circle', '请先输入指令再发送');
+                if(input) input.focus();
+                return;
+            }
+            // 在当前活跃页面找可见的btn-ai按钮
+            var activePage = document.querySelector('.page.active');
+            if(!activePage) {
+                showToast('fa-solid fa-info-circle', '未检测到当前页面，请先切换页面');
+                return;
+            }
+            var btn = activePage.querySelector('.btn-ai:not(:disabled)');
+            if(btn) {
+                btn.click();
+                // 输入框失焦，让结果区域更显眼
+                if(input) input.blur();
+            } else {
+                showToast('fa-solid fa-info-circle', '当前页面暂无AI分析按钮，请切换到看板/DM/LOSS/趋势/复盘等页面后发送');
+            }
+        }
         function _getPreferredModel() {
             var sel = document.getElementById('ai-model-selector');
             return sel ? sel.value : 'deepseek-chat';
