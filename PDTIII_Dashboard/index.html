@@ -1845,11 +1845,15 @@ async function refresh() {
     renderAll();
     // ★ 2026-08-24 修复: 首屏 renderTrend 早于 fetch 完成, state.lines 为空 → 今日实时数据未追加, 标题停在昨天
     //   数据就绪后若趋势缺今天(工作日)记录则补绘一次; 已有今天则跳过, 避免每10秒重复重绘闪烁
+    // ★ 2026-08-25 修复: 条件放宽 — 今天记录可能是壳(merge_first_hour 提前写入, lines/first_hour 为空)
+    //   只要最后一天缺数据就补绘, 否则首屏空白永远不会重绘
     try {
       const today = todayKey();
       const th = getTrendHist();
       const tl = th.length ? th[th.length - 1] : null;
-      if (tl && tl.date !== today && !isWeekendDate(today) && state.lines && state.lines.length && typeof renderTrend === "function") {
+      const needRedraw = !tl || tl.date !== today ||
+        !Object.keys(tl.lines || {}).length || !Object.keys(tl.first_hour || {}).length;
+      if (needRedraw && !isWeekendDate(today) && state.lines && state.lines.length && typeof renderTrend === "function") {
         renderTrend();
       }
     } catch (e) {}
@@ -2298,7 +2302,7 @@ setInterval(refresh, 10000);
 // ★ 标题秒表: 每秒刷新日期/班次/时段(精确到秒)
 setInterval(updatePeriodLabel, 1000);
 </script>
-<script src="live-data.js?v=20260825c"></script>
+<script src="live-data.js?v=20260825d"></script>
 <script>
 "use strict";
 /* ═══════════════════════════════════════════════════════════
