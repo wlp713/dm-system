@@ -2302,7 +2302,7 @@ setInterval(refresh, 10000);
 // ★ 标题秒表: 每秒刷新日期/班次/时段(精确到秒)
 setInterval(updatePeriodLabel, 1000);
 </script>
-<script src="live-data.js?v=20260825d"></script>
+<script src="live-data.js?v=20260825e"></script>
 <script>
 "use strict";
 /* ═══════════════════════════════════════════════════════════
@@ -2511,6 +2511,9 @@ function getTrendHist() {
     if (!isWeekendDate(today) && state && state.lines && state.lines.length) {
       const isToday = !!(last && last.date === today);
       const rec = isToday ? last : { date: today, lines: {}, first_hour: {} };
+      // 2026-08-25: 后端新建当天记录可能没有 lines/first_hour 字段(undefined) → 先初始化为对象, 否则赋值抛错被吞
+      if (!rec.lines || typeof rec.lines !== "object") rec.lines = {};
+      if (!rec.first_hour || typeof rec.first_hour !== "object") rec.first_hour = {};
       // rate 模式: 当天 lines 为空 → 用 state.lines 的 eff 补齐 (17:00快照后才可能有完整 lines)
       if (!Object.keys(rec.lines || {}).length) {
         state.lines.forEach(l => {
