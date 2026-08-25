@@ -1,0 +1,3139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>生产实时看板 v7</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2330;
+    --border: #2d333b;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --gray: #8b949e;
+    --white: #e6edf3;
+    --blue: #58a6ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: linear-gradient(160deg, #0d1117 0%, #0a0e14 100%);
+    background-attachment: fixed;
+    color: var(--white);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    height: 100vh; overflow: hidden; position: relative;
+    display: flex; flex-direction: column; padding: 10px 16px;
+  }
+  /* ★ 画布容器 (v4 纯响应式): 占满视口, 永不滚动
+     日常模式=仅原看板; 作战模式=原看板+扩展模块, flex按比例分配空间 */
+  #scale-stage {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    width: 100%;
+  }
+  #pages-wrap {
+    width: 100%; flex: 1; min-height: 0; display: flex; flex-direction: column;
+  }
+  /* ★ 扩展模块区 (作战模式显示): 底部一行三列 [出勤窄条|Top3汇总|趋势分析], 不挤压原看板最小空间 */
+  .ex-btn { font-size: 11px; padding: 3px 10px; border: 1px solid #2c3646; border-radius: 6px; background: #1b2330; color: #c8d2e0; cursor: pointer; }
+  .ex-btn:hover { background: #263044; }
+  #extra-modules {
+    display: none; flex-direction: row; gap: 10px; margin-top: 12px;
+    flex-shrink: 0; padding-right: 4px; align-items: stretch; position: relative;
+  }
+  /* 作战模式垂直 3:2 分配: 原看板占 60% (3/5) + 新增模块占 40% (2/5), 固定比例不挤压 */
+  body.battle-mode #pages-wrap { flex: 0 0 66%; }
+  body.battle-mode #extra-modules { flex: 0 0 34%; min-height: 0; margin-top: 6px; }
+  /* 出勤窄条: 最左, 占底部行宽 1/5 最多 (20%), 可拖拽改宽 */
+  .att-narrow { width: 20%; min-width: 150px; max-width: 220px; flex: 0 0 20%; min-height: 0; }
+  .att-narrow .ex-body { display: flex; flex-direction: column; gap: 3px; }
+  .att-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+    font-size: 10.5px; padding: 3px 8px; border-radius: 5px; background: var(--panel2);
+  }
+  .att-row .att-ws { color: var(--gray); font-weight: 600; }
+  .att-row .att-rate { font-weight: 700; }
+  /* 趋势分析: 最右, 占底部行宽 2/5 (40%), 可左右拖拽拉伸 */
+  .trend-wide { flex: 0 0 50%; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .trend-wide .ex-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+  /* 问题点汇总: 中间, 弹性吸收拖拽后剩余 */
+  #mod-problems { flex: 1 1 30%; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  #mod-problems .ex-body { flex: 1; min-height: 0; overflow: hidden; } /* 2026-08-20 14:05 去滚轮: 内容自动缩放适配 */
+  /* ── 上下模块字体统一 v2: 除标题外全部同一字号 10.5px (2026-08-20 11:57) ── */
+  #extra-modules .ex-card, #extra-modules .ex-card .ex-body, #extra-modules .ex-card .mod-table,
+  #extra-modules .ex-card .mod-table th, #extra-modules .ex-card .prob-top, #extra-modules .ex-card .att-row,
+  #extra-modules .ex-card .prob-time, #extra-modules .ex-card .prob-txt, #extra-modules .ex-card .prob-lineimp,
+  #extra-modules .ex-card .ex-src, #extra-modules .ex-card .ex-hint,
+  #extra-modules .ex-card .att-line, #extra-modules .ex-card .att-val,
+  #extra-modules .ex-card td, #extra-modules .ex-card th { font-size: 9.5px !important; }
+  #extra-modules .ex-card h2 { font-size: 11px; margin: 0; }
+  #extra-modules .ex-card .ex-btn { font-size: 9.5px; padding: 1px 7px; }
+  /* 2026-08-20 14:05 已删除 font-size:inherit 规则 — 它让日常模式表格继承 body 默认16px 导致字体变大; v7 无此规则, 日常模式恢复 table 11.5px 默认 */
+  body.battle-mode #pages-wrap table { font-size: 9.5px; }
+  body.battle-mode #pages-wrap .kpi .value { font-size: 12px; }
+  body.battle-mode #pages-wrap h1 { font-size: 12.5px; }
+  body.battle-mode #pages-wrap h2 { font-size: 10px; }
+  body.battle-mode #pages-wrap .kpi .label { font-size: 9px; }
+  /* ── 问题点模块紧凑化 (2026-08-20 15:20 小屏不溢出: 压缩表格内距) ── */
+  body.battle-mode #extra-modules .mod-table th { padding: 2px 5px; }
+  body.battle-mode #extra-modules .mod-table td { padding: 1px 5px; }
+  body.battle-mode #extra-modules .prob-top { padding: 0; line-height: 1.35; }
+  body.battle-mode #extra-modules .prob-summary { padding: 3px 8px; margin-bottom: 4px; }
+  /* 拖拽手柄: 绝对定位悬浮在 problems 与 trend 之间的 10px 缝隙中, 不占布局空间 → 所有模块缝隙统一 10px */
+  .trend-handle {
+    position: absolute; top: 0; bottom: 0; width: 10px; z-index: 5;
+    cursor: col-resize; background: transparent; border-radius: 4px;
+  }
+  .trend-handle::before {
+    content: ""; position: absolute; left: 3px; top: 10%; bottom: 10%; width: 3px;
+    background: var(--border); border-radius: 2px; transition: background .15s;
+  }
+  .trend-handle:hover::before { background: var(--blue); }
+  #trend-lines { display: flex; flex-wrap: wrap; gap: 3px 4px; flex-shrink: 0; }
+  .trend-line-pick {
+    display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
+    font-size: 9px; color: var(--gray); padding: 1px 5px; border-radius: 6px;
+    background: var(--panel2); border: 1px solid var(--border); user-select: none;
+  }
+  .trend-line-pick.on { color: var(--white); border-color: var(--blue); background: rgba(88,166,255,.12); font-weight: 700; }
+  .trend-line-pick .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  #chartTrend { flex: 1; width: 100%; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; grid-auto-rows: 1fr; gap: 6px; padding: 2px; }
+  .spark-card { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .spark-card:hover { border-color: var(--blue); }
+  .spark-head { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; flex-shrink: 0; }
+  .spark-name { font-weight: 800; font-size: 11px; flex-shrink: 0; }
+  .spark-full { color: var(--gray); font-size: 8px; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .spark-val { font-weight: 800; font-size: 11px; flex-shrink: 0; }
+  .spark-arrow { font-size: 8.5px; flex-shrink: 0; }
+  .sp-ok { color: var(--green); } .sp-warn { color: var(--orange); } .sp-bad { color: var(--red); }
+  .sp-up { color: var(--green); font-weight: 700; } .sp-down { color: var(--red); font-weight: 700; } .sp-flat { color: var(--gray); }
+  .spark-svg { flex: 1; width: 100%; min-height: 0; display: block; }
+  .spark-svg-wrap { position: relative; flex: 1; min-height: 0; }
+  .spark-svg-wrap .spark-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* 2026-08-21 数据标签: 绝对定位跟随数据点, text-shadow halo 防压线/重叠不清 */
+  .spark-label { position: absolute; font-size: 8.5px; font-weight: 800; line-height: 1; white-space: nowrap;
+    text-shadow: 0 0 2px var(--bg), 0 0 3px var(--bg), 0 0 4px var(--bg), 0 0 5px var(--bg); pointer-events: none; }
+  .spark-target { stroke: rgba(63,185,80,.4); stroke-width: 1; stroke-dasharray: 3 2; }
+  /* 问题点嵌入线体行下方 */
+  tr.prob-subrow td {
+    background: rgba(88,166,255,.045); padding: 2px 8px 7px 26px;
+    border-bottom: 1px dashed #2d333b;
+  }
+  tr.prob-subrow:hover td { background: rgba(88,166,255,.07); }
+  .prob-inline { font-size: 10.5px; color: var(--orange); line-height: 1.55; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .prob-inline .prob-item { display: inline-flex; gap: 6px; }
+  .prob-inline .prob-time { color: var(--blue); font-weight: 600; }
+  .prob-inline .prob-txt { color: #d4b06a; }
+  .prob-inline .prob-imp { color: var(--red); font-weight: 700; }
+  .prob-none { color: var(--gray); font-size: 10px; opacity: .8; }
+  .ex-head { display: flex; align-items: center; justify-content: space-between; }
+  .ex-title { font-size: 10px; font-family: Consolas, monospace; letter-spacing: .3em; color: var(--gray); }
+  .ex-btn {
+    background: var(--panel2); color: var(--blue); border: 1px solid rgba(88,166,255,.35);
+    border-radius: 10px; padding: 2px 10px; font-size: 11px; cursor: pointer;
+  }
+  .ex-btn:hover { background: rgba(88,166,255,.15); }
+  .ex-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 6px 10px; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+  }
+  .ex-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+  .ex-card-head h2 { font-size: 13px; color: var(--white); font-weight: 700; letter-spacing: .5px; }
+  .ex-src { font-size: 10px; color: var(--gray); background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 1px 8px; }
+  .ex-collapse {
+    margin-left: auto; width: 22px; height: 22px; border-radius: 6px;
+    background: var(--panel2); color: var(--gray); border: 1px solid var(--border);
+    font-size: 13px; line-height: 1; cursor: pointer;
+  }
+  .ex-collapse:hover { color: var(--red); border-color: rgba(248,81,73,.5); }
+  /* 2026-08-20 15:30 扩展弹窗: 模块标题栏右上角小图标 (不占布局空间, 绝对定位) */
+  .ex-expand {
+    position: absolute; top: 2px; right: 34px;
+    width: 16px; height: 16px; border-radius: 4px; padding: 0; line-height: 14px;
+    background: transparent; color: var(--gray); border: none; font-size: 12px;
+    cursor: pointer; z-index: 5; opacity: .6; transition: opacity .15s;
+  }
+  .ex-expand:hover { opacity: 1; color: var(--blue); background: rgba(88,166,255,.12); }
+  .ex-card { position: relative; }
+  .ex-body { font-size: 11.5px; }
+  .ex-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .ex-table th { text-align: center; padding: 5px 6px; color: var(--gray); font-weight: 600; border-bottom: 1px solid var(--border); font-size: 10.5px; }
+  .ex-table td { text-align: center; padding: 7px 6px; border-bottom: 1px solid #21262d; font-variant-numeric: tabular-nums; }
+  .ex-table td:first-child { text-align: left; }
+  .ex-table tr:hover td { background: var(--panel2); }
+  .rate-ok { color: var(--green); font-weight: 700; }
+  .rate-warn { color: var(--orange); font-weight: 700; }
+  .rate-bad { color: var(--red); font-weight: 700; }
+  .ex-tools { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .ex-hint { font-size: 10px; color: var(--gray); }
+  .prob-cell { white-space: pre-wrap; line-height: 1.45; }
+  .mod-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+  .mod-table th { text-align: center; padding: 4px 5px; color: var(--gray); font-weight: 600; border-bottom: 1px solid var(--border); font-size: 10px; }
+  .mod-table td { text-align: left; padding: 3px 5px; border-bottom: 1px solid #21262d; }
+  .mod-table td.num { text-align: center; }
+  .mod-table tr:hover td { background: var(--panel2); }
+  .prob-del { background: none; border: none; color: var(--red); cursor: pointer; font-size: 12px; padding: 0 4px; opacity: .6; }
+  .prob-del:hover { opacity: 1; }
+  /* Top3 汇总样式 */
+  .prob-summary { font-size: 10.5px; color: var(--white); background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; margin-bottom: 6px; line-height: 1.5; }
+  .prob-line { font-weight: 700; color: var(--white); font-size: 11px; }
+  .prob-lineimp { font-size: 9px; color: var(--gray); font-weight: 400; margin-top: 2px; }
+  .prob-top { display: flex; align-items: flex-start; gap: 5px; padding: 3px 0; font-size: 10.5px; line-height: 1.45; }
+  .prob-rank { font-size: 11px; font-weight: 700; flex-shrink: 0; line-height: 1.45; }
+  /* 2026-08-21 13:45: prob-main 包裹问题名+影响+次数, prob-times 独立一行时段 (不再用 <br> 挤在 flex 里) */
+  .prob-main { flex: 1 1 auto; min-width: 0; display: block; }
+  .prob-cnt { color: var(--orange); font-weight: 700; margin-left: 4px; }
+  .prob-imp { color: var(--red); font-weight: 700; margin-left: 4px; }
+  .prob-times { font-size: 9px; color: var(--gray); margin-top: 2px; line-height: 1.4; }
+  /* 2026-08-21 13:45 fix: 长问题名完整换行显示(不再 nowrap 截断省略), 由 fitProbFont 自动缩字号防溢出 */
+  .prob-cell .prob-txt { white-space: normal; word-break: break-all; overflow-wrap: anywhere; flex: 1 1 auto; min-width: 0; }
+  #prob-body .prob-summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prob-rank.r1 { color: var(--red); }
+  .prob-rank.r2 { color: var(--orange); }
+  .prob-rank.r3 { color: var(--gray); }
+  .ex-modal { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: none; align-items: center; justify-content: center; z-index: 200; }
+  .ex-modal.open { display: flex; }
+  .ex-modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; width: 560px; max-height: 82vh; overflow-y: auto; }
+  .ex-modal-box h3 { font-size: 14px; margin-bottom: 12px; }
+  /* 2026-08-20 15:30 详情大弹窗: 占屏幕 2/3, 模块扩展查看 */
+  .detail-modal { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; z-index: 300; }
+  .detail-modal.open { display: flex; }
+  .detail-box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    width: 80%; height: 78%; max-width: 1500px; display: flex; flex-direction: column;
+    box-shadow: 0 18px 60px rgba(0,0,0,.5); overflow: hidden;
+  }
+  .detail-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .detail-head h3 { font-size: 14px; margin: 0; }
+  .detail-head .ex-src { margin-left: auto; }
+  .detail-close {
+    width: 26px; height: 26px; border-radius: 6px; background: var(--panel2); color: var(--gray);
+    border: 1px solid var(--border); font-size: 14px; line-height: 1; cursor: pointer;
+  }
+  .detail-close:hover { color: var(--red); border-color: rgba(248,81,73,.5); }
+  .detail-body { flex: 1; min-height: 0; padding: 12px 16px; overflow-y: auto; display: flex; flex-direction: column; }
+  .detail-body canvas { flex: 1; width: 100%; height: auto; min-height: 0; }
+  .detail-modes { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+  .detail-mode-btn {
+    background: var(--panel2); color: var(--gray); border: 1px solid var(--border);
+    border-radius: 8px; padding: 2px 10px; font-size: 10px; cursor: pointer;
+  }
+  .detail-mode-btn.on { color: var(--white); border-color: var(--blue); background: rgba(88,166,255,.15); font-weight: 700; }
+  .ex-form { display: flex; flex-direction: column; gap: 8px; }
+  .ex-form label { font-size: 11px; color: var(--gray); }
+  .ex-form input, .ex-form textarea, .ex-form select {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--white);
+    border-radius: 6px; padding: 5px 8px; font-size: 12px; width: 100%;
+  }
+  .ex-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ex-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 6px; margin-bottom: 8px; flex-shrink: 0;
+  }
+  .header .title-wrap { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .header h1 {
+    font-size: 21px; letter-spacing: 2px; font-weight: 700;
+    background: linear-gradient(90deg, #e6edf3, #58a6ff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .period-label { font-size: 17px; color: #ffffff; font-weight: 700; letter-spacing: 0; margin-left: 12px; white-space: nowrap; }
+  .header-right { display: flex; align-items: center; gap: 8px; }
+  /* ★ 作战模式紧凑重排 (body.battle-mode): 原看板整体缩小字号/间距, 给底部模块腾空间, 不缩放不滚动 */
+  body.battle-mode .header { margin-bottom: 3px; }
+  body.battle-mode .header h1 { font-size: 14px; letter-spacing: 1px; }
+  body.battle-mode .period-label { font-size: 11.5px; margin-left: 6px; }
+  body.battle-mode .stall-banner { padding: 1px 8px; margin-bottom: 3px; font-size: 9.5px; }
+  body.battle-mode .kpis { gap: 3px; margin-bottom: 3px; }
+  body.battle-mode .kpi { padding: 3px 7px; }
+  body.battle-mode .kpi .value { font-size: 14px; }
+  body.battle-mode .kpi .label { font-size: 8.5px; }
+  body.battle-mode .kpi .sub { font-size: 8px; }
+  body.battle-mode .panel { padding: 4px 8px; }
+  body.battle-mode .panel-head { margin-bottom: 2px; }
+  body.battle-mode .panel h2 { font-size: 9.5px; }
+  body.battle-mode td { padding: 6px 10px; }
+  body.battle-mode th { padding: 4px 10px; font-size: 9px; }
+  body.battle-mode .legend { font-size: 9.5px; margin-bottom: 2px; }
+  body.battle-mode .btn { padding: 2px 9px; font-size: 10.5px; }
+  .conn-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--gray); background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 3px 10px; }
+  .conn-status .dot { width: 8px; height: 8px; border-radius: 50%; background: #d29922; }
+  .conn-status.ok .dot { background: #3fb950; box-shadow: 0 0 6px rgba(63,185,80,.6); }
+  .conn-status.warn .dot { background: #d29922; }
+  .conn-status.err .dot { background: #f85149; box-shadow: 0 0 6px rgba(248,81,73,.6); }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(63,185,80,.5); }
+    70% { box-shadow: 0 0 0 8px rgba(63,185,80,0); }
+    100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); }
+  }
+  .btn {
+    background: var(--panel2); color: var(--blue); border: 1px solid rgba(88,166,255,.35);
+    border-radius: 14px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+    transition: background .15s; white-space: nowrap;
+  }
+  .btn:hover { background: rgba(88,166,255,.15); }
+  .btn-sm { padding: 2px 8px; font-size: 10.5px; }
+  .head-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 14px; }
+  .head-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .head-item .hn { flex: 1; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .head-item input { width: 64px; background: var(--panel2); border: 1px solid var(--border); color: var(--white); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+  .stall-banner {
+    display: none; align-items: center; gap: 8px;
+    background: rgba(248,81,73,.14); border: 1px solid rgba(248,81,73,.45);
+    border-radius: 8px; padding: 6px 12px; margin-bottom: 8px;
+    font-size: 13px; color: var(--red); font-weight: 600; flex-shrink: 0;
+    animation: blink 1.5s infinite;
+  }
+  .stall-banner .slist { font-weight: 400; color: var(--white); }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px; flex-shrink: 0; }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 4px 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    min-width: 0; display: flex; flex-direction: column; justify-content: center;
+  }
+  .kpi-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; min-width: 0; }
+  .kpi .label { font-size: 12.5px; color: var(--gray); font-weight: 700; display: flex; align-items: center; gap: 5px; white-space: nowrap; min-width: 0; }
+  .kpi .value { font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: .5px; flex-shrink: 0; }
+  .kpi .sub { font-size: 11px; color: var(--gray); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi .value.green { color: var(--green); }
+  .kpi .value.orange { color: var(--orange); }
+  .kpi .value.red { color: var(--red); }
+  .kpi .value.blue { color: var(--blue); }
+  .main-grid {
+    display: grid; grid-template-columns: 1.25fr 1fr; gap: 10px;
+    flex: 1; min-height: 0;
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  }
+  .panel-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px; flex-shrink: 0;
+  }
+  .panel h2 { font-size: 12.5px; color: var(--gray); font-weight: 700; letter-spacing: .5px; }
+  .table-scroll { overflow-y: hidden; flex: 1; min-height: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  th {
+    text-align: right; padding: 4px 6px; color: var(--gray);
+    font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap;
+    font-size: 11px; position: sticky; top: 0; background: var(--panel); z-index: 1;
+  }
+  th:first-child, td:first-child { text-align: left; }
+  th[data-sort] { cursor: pointer; user-select: none; }
+  th[data-sort]:hover { color: var(--white); }
+  th[data-sort].sorted { color: var(--blue); }
+  th[data-sort].sorted.desc::after { content: " ▼"; font-size: 9px; }
+  th[data-sort].sorted.asc::after { content: " ▲"; font-size: 9px; }
+  td { text-align: right; padding: 12px 6px; border-bottom: 1px solid #21262d; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: var(--panel2); }
+  tr.miss td { background: rgba(248,81,73,.05); }
+  tr.miss:hover td { background: rgba(248,81,73,.1); }
+  tr.stalled-row td { background: rgba(248,81,73,.1); }
+  /* ---- 停滞分级: 黄 <15min / 橙 15-30min / 红 >=30min(闪烁) ---- */
+  tr.stalled-row.lv1 td { background: rgba(210,153,34,.12); }
+  tr.stalled-row.lv2 td { background: rgba(248,81,73,.18); }
+  tr.stalled-row.lv3 td { background: rgba(248,81,73,.28); animation: stallRowBlink 1.2s infinite; }
+  tr.stalled-row.lv1:hover td { background: rgba(210,153,34,.2); }
+  tr.stalled-row.lv2:hover td { background: rgba(248,81,73,.26); }
+  tr.stalled-row.lv3:hover td { background: rgba(248,81,73,.36); }
+  /* ★ 2026-08-24: 计划停产线体(如本周 Motor WL) — 灰色标注, 不闪不红 */
+  tr.planned-off td { background: #262b33 !important; color: #8b949e; }
+  tr.planned-off td.line-name { color: #9da7b3; }
+  tr.planned-off:hover td { background: #2f353e !important; }
+  tr.planned-off .stall-dot { background: #8b949e !important; box-shadow: none; }
+  @keyframes stallRowBlink { 0%,100% { opacity: 1; } 50% { opacity: .75; } }
+  .stall-time {
+    display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;
+    font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 8px;
+    background: rgba(139,148,158,.15); color: var(--gray);
+  }
+  .st.stall .stall-time { margin-left: 4px; }
+  .stall-time.lv1 { background: rgba(210,153,34,.18); color: var(--orange); }
+  .stall-time.lv2 { background: rgba(248,81,73,.2); color: var(--red); }
+  .stall-time.lv3 { background: rgba(248,81,73,.3); color: #ff7b72; animation: blink 1s infinite; }
+  .line-name { font-weight: 600; color: var(--white); white-space: nowrap; }
+  .rank { width: 32px; min-width: 32px; text-align: center; color: #8b949e; font-weight: 700; }
+  .hit-name { color: var(--green); }
+  .miss-name { color: var(--red); }
+  .stall-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--red);
+    display: inline-block; margin-right: 6px; vertical-align: 1px;
+    animation: blink 1s infinite;
+  }
+  /* ---- 横向条形图列（列表×图表融合） ---- */
+  td.bar-cell { padding: 3px 8px; min-width: 130px; }
+  .hbar { position: relative; height: 12px; background: #1a1f27; border-radius: 6px; overflow: hidden; }
+  .hbar .act {
+    position: absolute; left: 0; top: 0; height: 100%;
+    background: linear-gradient(90deg, #58a6ff, #79c0ff);
+    border-radius: 6px; min-width: 3px;
+  }
+  .hbar .plan {
+    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    height: 5px; background: rgba(210,153,34,.9);
+    border-radius: 3px; min-width: 2px;
+  }
+  .hbar .p100 { position: absolute; right: 0; top: -2px; height: 16px; border-right: 1px dashed rgba(139,148,158,.5); }
+  .hbar-leg { font-size: 9.5px; color: var(--gray); margin-top: 1px; display: flex; gap: 10px; }
+  .hbar-leg i { font-style: normal; }
+  .hbar-leg .a::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--blue); margin-right: 3px; vertical-align: -1px; }
+  .hbar-leg .p::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--orange); margin-right: 3px; vertical-align: -1px; }
+  .st { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 1px 8px; border-radius: 10px; border: 1px solid transparent; }
+  .st.run { background: rgba(63,185,80,.13); color: var(--green); border-color: rgba(63,185,80,.35); }
+  .st.off { background: rgba(139,148,158,.12); color: var(--gray); border-color: rgba(139,148,158,.3); }
+  .st.err { background: rgba(248,81,73,.13); color: var(--red); border-color: rgba(248,81,73,.35); }
+  .st.stall { background: rgba(248,81,73,.16); color: var(--red); border-color: rgba(248,81,73,.5); animation: blink 1.2s infinite; }
+  .eff-ok { color: var(--green); font-weight: 600; }
+  .eff-bad { color: var(--red); font-weight: 600; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .zero { color: var(--gray); }
+  /* 右侧图表: 上下叠 */
+  .chart-col { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px; }
+  .chart-box { flex: 2.2; min-height: 0; display: flex; flex-direction: column; }
+  .chart-box.small { flex: 0.8; }
+  .chart-box canvas { flex: 1; width: 100%; height: 0; min-height: 60px; }
+  /* 2026-08-21 14:20 fix: 首帧 flex 未撑开时 clientHeight=0, 给 canvas 显式最小高度保证可见 */
+  /* 2026-08-24 fix: 原 min-height:140px 导致容器被压小时 canvas 不肯缩小, UPPH图溢出右侧面板底部;
+     改为 max-height:100% 允许随容器收缩, 溢出由 .chart-box overflow:hidden 兜底裁剪 */
+  .chart-box canvas { min-height: 60px; max-height: 100%; }
+  .chart-box { overflow: hidden; }
+  .legend { display: flex; gap: 12px; font-size: 10.5px; color: var(--gray); margin-bottom: 4px; flex-wrap: wrap; flex-shrink: 0; }
+  .legend span::before {
+    content: ""; display: inline-block; width: 9px; height: 9px;
+    border-radius: 2px; margin-right: 5px; vertical-align: -1px;
+  }
+  .legend .lg-actual::before { background: var(--blue); }
+  .legend .lg-plan::before { background: var(--orange); }
+  .legend .lg-eff::before { background: var(--green); }
+  .legend .hint { color: #6e7681; font-size: 10px; }
+  .legend .seg-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: #8b949e; cursor: pointer; user-select: none; }
+  .legend .seg-toggle input { width: 12px; height: 12px; accent-color: var(--blue); cursor: pointer; }
+  /* 模态弹窗: 其他线体 */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.65);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; width: min(900px, 94vw); max-height: 82vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .modal-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 11px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .modal-head h3 { font-size: 14px; color: var(--white); font-weight: 700; }
+  .modal-close {
+    background: var(--panel2); color: var(--gray); border: 1px solid var(--border);
+    border-radius: 50%; width: 26px; height: 26px; cursor: pointer; font-size: 13px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--white); border-color: #3d444d; }
+  .modal-body { padding: 10px 16px 14px; overflow-y: auto; }
+  .modal-lg { width: min(1500px, 97vw); }
+  .hist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+  .hist-section { min-width: 0; }
+  .hist-section h4 { font-size: 13px; color: var(--white); font-weight: 700; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hist-scroll { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .hist-table { font-size: 11.5px; width: 100%; }
+  .hist-table th { background: var(--panel2); }
+  .hist-table td, .hist-table th { padding: 6px 8px; }
+  .hist-table tr:hover td { background: var(--panel2); }
+  .hist-table .champ { color: var(--orange); font-weight: 700; }
+  .hist-table .lastp { color: var(--red); font-weight: 700; }
+  .vs-up { color: var(--green); font-weight: 600; }
+  .vs-down { color: var(--red); font-weight: 600; }
+  .vs-flat { color: var(--gray); }
+  .rep-badge { font-size: 9px; padding: 1px 6px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+  .rep-day { background: #f8514922; color: #f85149; border: 1px solid #f8514955; }
+  .rep-week { background: #d2992222; color: #d29922; border: 1px solid #d2992255; }
+  .trend-arrow.up { color: #f85149; font-weight: 700; }
+  .trend-arrow.down { color: #3fb950; font-weight: 700; }
+  .trend-arrow.flat { color: var(--gray); }
+  @media (max-width: 1100px) {
+    .main-grid { grid-template-columns: 1fr; overflow-y: auto; }
+    body { overflow-y: auto; }
+    .kpis { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 700px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<!-- ★ 画布缩放层 (2026-08-20): 日常模式=原看板等比缩放, 作战模式=新增模块后整体按比例缩小 -->
+<div id="scale-stage">
+<div id="pages-wrap">
+<div class="header">
+  <div class="title-wrap">
+    <h1><span data-i18n="boardTitle">生产实时看板</span> <span id="periodLabel" class="period-label"></span></h1>
+  </div>
+  <div class="header-right">
+    <button class="btn" id="langBtn" title="Switch language">EN</button>
+    <span class="conn-status" id="connStatus" data-i18n="connConnecting"><span class="dot"></span> 连接中…</span>
+    <button class="btn" id="notifBtn" style="display:none" data-i18n="notifOn">🔔 开启停滞通知</button>
+    <button class="btn" id="histBtn" data-i18n="histBtn">📊 历史统计</button>
+    <button class="btn" id="modeBtn" data-i18n-title="modeTitle">⚔️ 详情</button>
+  </div>
+</div>
+
+<div class="stall-banner" id="stallBanner">
+  <span data-i18n="stallBanner">⚠️ 停滞线体: </span><span class="slist" id="stallList"></span>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="kpi-top"><div class="label" data-i18n="kpiRun">🟢 运行线体</div><div class="value" id="kpiRun">-</div></div><div class="sub" id="kpiRunSub" data-i18n="kpiRunSub">主要 8 条</div></div>
+  <div class="kpi"><div class="kpi-top"><div class="label" data-i18n="kpiEff">⚡ 平均效率</div><div class="value" id="kpiEff">-</div></div><div class="sub" data-i18n="kpiEffSub">主要线体·计划量加权</div></div>
+  <div class="kpi"><div class="kpi-top"><div class="label" data-i18n="kpiHit">🏆 达成线体 ≥90%</div><div class="value" id="kpiHit">-</div></div><div class="sub" id="kpiHitSub" data-i18n="kpiHitSub">达成线体</div></div>
+  <div class="kpi"><div class="kpi-top"><div class="label" data-i18n="kpiFinal">🔵 Final 产量</div><div class="value blue" id="kpiFinal">-</div></div><div class="sub" data-i18n="kpiFinalSub">Final A-D 合计</div></div>
+  <div class="kpi"><div class="kpi-top"><div class="label" data-i18n="kpiMotor">🟠 Motor 产量</div><div class="value orange" id="kpiMotor">-</div></div><div class="sub" data-i18n="kpiMotorSub">Motor H/S/F/WL 合计</div></div>
+</div>
+
+<div class="main-grid">
+  <div class="panel">
+    <div class="panel-head">
+      <h2 data-i18n="panelMainTitle">📋 主要线体 · 产量对比 · 点击列头排序</h2>
+      <button class="btn" id="otherBtn" data-i18n="otherLines">其他线体 (0)</button>
+    </div>
+    <div class="table-scroll">
+      <table id="mainTable">
+        <thead>
+          <tr>
+            <th>#</th><th data-sort="name" data-i18n="thLine">线体</th><th data-sort="actual" data-i18n="thOutput">产量 (蓝=实际 · 橙=计划)</th>
+            <th data-sort="actual">Actual</th><th data-sort="plan">Plan</th><th data-sort="cb" data-i18n="thDiff">差异</th><th data-sort="eff" data-i18n="thRate">达成率%</th><th data-sort="uph">UPH</th><th data-sort="status" data-i18n="thStatus">状态</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2 data-i18n="panelChartTitle">📊 每小时产量 / 效率 (主要线体)</h2></div>
+    <div class="chart-col">
+      <div class="chart-box">
+        <div class="legend"><span class="lg-actual" data-i18n="lgActual">Actual 实际</span><span class="lg-plan" data-i18n="lgPlan">Plan 实时目标</span><label class="seg-toggle" data-i18n-title="segToggleTitle" title="勾选后每个时段实际柱与目标柱逐段对齐对比, 段内数字=该时段产量/目标"><input type="checkbox" id="segToggle"> <span data-i18n="hourlyOut">小时产出</span></label><span class="hint" data-i18n="hintSeg">两柱完全平行 · 蓝色=实际达成 · 灰色=未达成缺口</span></div>
+        <canvas id="chartBar"></canvas>
+      </div>
+      <div class="chart-box small">
+        <div class="legend"><span class="lg-eff" data-i18n="lgEff">UPPH 达成率 (实际÷目标)</span><span class="hint" data-i18n="hintUpph">UPPH = 产量÷工时÷人数</span><button class="btn btn-sm" id="headBtn" style="margin-left:auto" data-i18n="editHead">✏️ 编辑人数</button></div>
+        <canvas id="chartEff"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+  </div><!-- /pages-wrap -->
+
+  <!-- ★ 扩展模块区 (作战模式显示): 底部一行三列 [出勤率窄条 | 未达成原因Top3汇总 | 达成率趋势分析] -->
+  <div id="extra-modules">
+    <!-- ── 最左: 出勤率窄模块 (小窄条, 可折叠) ── -->
+    <section id="mod-attendance" class="ex-card att-narrow">
+      <div class="ex-card-head">
+        <h2 data-i18n="attTitle">👥 出勤</h2>
+        <div class="ex-src" id="att-src" style="font-size:9px">SRC:-</div>
+        <button class="ex-collapse" onclick="toggleModule('mod-attendance')" data-i18n-title="collapseTitle">—</button>
+      </div>
+      <button class="ex-expand" onclick="openDetail('attendance')" title="⛶ 查看完整出勤表" data-i18n-title="expandAtt">⛶</button>
+      <div class="ex-body" id="att-body"></div>
+      <div class="ex-tools"><button class="ex-btn" onclick="openAttModal()">✏️ 录入</button><span class="ex-hint" data-i18n="attExHint">当日出勤 · 填写</span></div>
+    </section>
+
+    <!-- ── 中: 未达成原因 · Top3 汇总 (每条线影响最大的前3条, 与嵌入明细差异化) ── -->
+    <section id="mod-problems" class="ex-card prob-wide">
+      <div class="ex-card-head">
+        <h2 data-i18n="probTitle">🚨 未达成原因 · 主要问题点</h2>
+        <div class="ex-src" id="prob-src">SRC: -</div>
+        <button class="ex-collapse" onclick="toggleModule('mod-problems')" data-i18n-title="collapseTitle">—</button>
+      </div>
+      <button class="ex-expand" onclick="openDetail('problems')" title="⛶ 查看全部问题点" data-i18n-title="expandProb">⛶</button>
+      <div class="ex-body" id="prob-body"></div>
+      <div class="ex-tools"><span class="ex-hint" data-i18n="probExHint">每小时自动更新</span></div>
+    </section>
+
+    <!-- 拖拽手柄: 左右拉伸趋势图宽度, 其他模块自动让位 -->
+    <div class="trend-handle" id="trendHandle" title="拖拽调整宽度"></div>
+
+    <!-- ── 最右: 产出达成率趋势分析 (折线图, 多线体可切换选择, 历史数据=每日17:00快照) ── -->
+    <section id="mod-trend" class="ex-card trend-wide">
+      <div class="ex-card-head">
+        <h2><span id="trendTitleText">📈 达成率趋势分析</span></h2>
+        <div class="ex-src" id="trend-src" data-i18n="srcSnapshot">SRC: 每日17:00快照</div>
+        <button class="ex-collapse" onclick="toggleModule('mod-trend')" data-i18n-title="collapseTitle">—</button>
+      </div>
+      <button class="ex-expand" onclick="openDetail('trend')" title="⛶ 查看详细趋势图" data-i18n-title="expandTrend">⛶</button>
+      <div class="ex-body">
+        <div id="trend-lines"></div>
+        <div id="chartTrend"></div>
+      </div>
+    </section>
+  </div>
+</div><!-- /scale-stage -->
+
+<!-- 出勤录入弹窗 -->
+<div class="ex-modal" id="attModal">
+  <div class="ex-modal-box">
+    <h3 data-i18n="attModalTitle">👥 录入当日出勤</h3>
+    <div class="ex-form">
+      <div class="ex-form-row">
+        <div><label data-i18n="fDate">日期</label><input id="attF-date" style="width:120px"></div>
+      </div>
+      <div id="attF-rows"></div>
+      <div class="ex-form-actions">
+        <button class="ex-btn" onclick="closeAttModal()" data-i18n="cancel">取消</button>
+        <button class="ex-btn" onclick="saveAttModal()" data-i18n="save">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2026-08-21: 问题点录入弹窗已取消 (Top3 数据由每小时自动同步, 无需手工录入) -->
+
+<!-- 2026-08-20 15:30 详情大弹窗 (模块扩展查看: 趋势大图/全部问题点/完整出勤表) -->
+<div class="detail-modal" id="detailModal">
+  <div class="detail-box">
+    <div class="detail-head">
+      <h3 id="detailTitle">详情</h3>
+      <div class="detail-modes" id="detailModes"></div>
+      <div class="ex-src" id="detailSrc">SRC:-</div>
+      <button class="detail-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-body" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- 其他线体模态 -->
+<div class="modal-overlay" id="otherModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle" data-i18n="otherLines">其他线体</h3>
+      <span class="hint" style="margin-left:10px" data-i18n="sortByUph">点击列头排序</span>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <table id="otherTable">
+        <thead>
+          <tr>
+            <th>#</th><th data-sort="name" data-i18n="thLine">线体</th><th data-sort="target" data-i18n="thTargetDay">目标/日</th><th data-sort="plan">Plan</th><th data-sort="actual">Actual</th>
+            <th data-sort="cb" data-i18n="thDiff">差异</th><th data-sort="eff" data-i18n="thRate">达成率%</th><th data-sort="status" data-i18n="thStatus">状态</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 历史统计模态 -->
+<div class="modal-overlay" id="histModal">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h3 data-i18n="histTitle">📊 历史统计 · 周/月对比 · 站擂排名</h3>
+      <button class="modal-close" id="histClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- ★ 2026-08-20 16:20 日期回看: 按年/月/日推移, 回看任意历史日期的全量看板 (产量/UPH/达成率/问题点/出勤) -->
+      <div class="hist-replay" style="background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <b style="font-size:12px" data-i18n="histReplayTitle">📅 历史日期回看</b>
+          <input type="date" id="histDatePick" style="background:var(--panel);border:1px solid var(--border);color:var(--white);border-radius:6px;padding:3px 8px;font-size:12px">
+          <button class="btn" id="histLoadBtn" style="padding:2px 12px;font-size:11px" data-i18n="histLoad">加载</button>
+          <span id="histReplayStatus" style="font-size:11px;color:var(--gray)"></span>
+          <span style="margin-left:auto;font-size:10px;color:var(--gray)" data-i18n="histReplayHint">快照每日17:00自动归档 → history/日期.json</span>
+        </div>
+        <div id="histReplayBody" style="margin-top:6px;display:none"></div>
+      </div>
+      <div class="hist-grid">
+      <div class="hist-section">
+        <h4 data-i18n="histToday">📌 今日实时</h4>
+        <div class="hist-scroll">
+          <table class="hist-table" id="histTodayTbl">
+            <thead><tr><th data-i18n="thLine">线体</th><th data-i18n="thRate">达成率%</th><th>UPH</th><th data-i18n="thUpphRate">UPPH达成%</th><th data-i18n="thScore">综合分</th><th data-i18n="thRank">今日排名</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="hist-section">
+        <h4 id="histWeekTitle">🗓 本周 vs 上周</h4>
+        <div class="hist-scroll">
+          <table class="hist-table" id="histWeekTbl">
+            <thead><tr><th data-i18n="thLine">线体</th><th data-i18n="thWeekRate">周均达成%</th><th data-i18n="thWeekUpph">周均UPPH%</th><th data-i18n="thWeekVsPrev">vs 上周</th><th data-i18n="thChamp">🏆 站擂第一</th><th data-i18n="thLast">🔻 末位</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="hist-section">
+        <h4 id="histMonthTitle">📅 本月 vs 上月</h4>
+        <div class="hist-scroll">
+          <table class="hist-table" id="histMonthTbl">
+            <thead><tr><th data-i18n="thLine">线体</th><th data-i18n="thMonthRate">月均达成%</th><th data-i18n="thMonthUpph">月均UPPH%</th><th data-i18n="thMonthVsPrev">vs 上月</th><th data-i18n="thChamp">🏆 站擂第一</th><th data-i18n="thLast">🔻 末位</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑人数模态 -->
+<div class="modal-overlay" id="headModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 data-i18n="editHeadTitle">✏️ 编辑各线出勤人数</h3>
+      <button class="modal-close" id="headClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint" style="margin:0 0 8px" data-i18n="headHint">UPPH达成率 = 实际产量 ÷ 日目标产量；UPH = 产量 ÷ 人数 ÷ 工时。每天人数可改，保存后自动生效。</p>
+      <div class="head-grid" id="headGrid"></div>
+      <div style="margin-top:12px;text-align:right"><button class="btn" id="headSave" data-i18n="save">💾 保存</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ============ i18n 中英切换 ============
+const I18N = {
+  zh: {
+    docTitle: "生产实时看板", boardTitle: "生产实时看板",
+    connConnecting: "连接中…", notifOn: "🔔 开启停滞通知", stallBanner: "⚠️ 停滞线体: ",
+    kpiRun: "🟢 运行线体", kpiRunSub: "主要 8 条", kpiEff: "⚡ 平均效率", kpiEffSub: "主要线体·计划量加权",
+    kpiHit: "🏆 达成线体 ≥90%", kpiHitSub: "达成线体", kpiFinal: "🔵 Final 产量", kpiFinalSub: "Final A-D 合计",
+    kpiMotor: "🟠 Motor 产量", kpiMotorSub: "Motor H/S/F/WL 合计",
+    panelMainTitle: "📋 主要线体 · 产量对比 · 点击列头排序", otherLines: "其他线体",
+    thLine: "线体", thOutput: "产量 (蓝=实际 · 橙=计划)", thDiff: "差异", thRate: "达成率%", thStatus: "状态",
+    panelChartTitle: "📊 每小时产量 / 效率 (主要线体)",
+    lgActual: "Actual 实际", lgPlan: "Plan 实时目标", hourlyOut: "小时产出",
+    segToggleTitle: "勾选后每个时段实际柱与目标柱逐段对齐对比, 段内数字=该时段产量/目标",
+    hintSeg: "两柱完全平行 · 蓝色=实际达成 · 灰色=未达成缺口",
+    lgEff: "UPPH 达成率 (实际÷目标)", hintUpph: "UPPH = 产量÷工时÷人数", editHead: "✏️ 编辑人数",
+    sortByUph: "点击列头排序", thTargetDay: "目标/日",
+    editHeadTitle: "✏️ 编辑各线出勤人数",
+    headHint: "UPPH达成率 = 实际UPPH÷目标UPPH；实际UPPH = 累计产出÷累计工时÷人数；目标UPPH = 累计目标(实时计划)÷累计工时÷人数。每天人数可改，保存后自动生效。",
+    save: "💾 保存",
+    stStall: "停滞", stRun: "运行", stOff: "停机", stUnknown: "未知", stPlannedOff: "计划停产",
+    kpiRunSubFmt: "主要 {m} 条 · 全部 {a} 条", noHit: "暂无达成线体",
+    notifTitle: "⚠️ 线体停滞: ", notifBody: "产量约5分钟无变化，请检查产线 · ",
+    noData: "暂无数据", am: "上午", pm: "下午", setPeople: "设人数",
+    headTitleFmt: "{name} — UPPH达成率 = 实际UPPH÷目标UPPH({p}%)",
+    shiftDay: "白班（Day shift）", shiftSwing: "中班", shiftNight: "夜班",
+    useHttp: "⚠️ 请用 http://localhost:8080 打开",
+    fileErr: "⚠️ file:// 无法加载数据 — 请用 http://localhost:8080 打开看板",
+    connOk: "已连接 · 数据实时", connDelay: "数据延迟 {s}s", connDown: "数据断线 {m}min", connNoData: "无数据",
+    connFailed: "连接失败", connFailedMsg: "连接失败: {m}", otherLinesFmt: "其他线体 ({n})",
+    histBtn: "📊 历史统计", histTitle: "📊 历史统计 · 周/月对比 · 站擂排名",
+    histReplayTitle: "📅 历史日期回看", histLoad: "加载", histReplayHint: "快照每日17:00自动归档 → history/日期.json",
+    modeDaily: "基础", modeDetail: "详情", modeTitle: "切换 基础/详情 模式",
+    collapseTitle: "隐藏此模块", probExHint: "每小时自动更新",
+    cancel: "取消",
+    attTitle: "👥 出勤", probTitle: "🚨 未达成原因 · 主要问题点", trendTitle: "📈 达成率趋势分析",
+    probLineTh: "线体", probNoData: "暂无问题点 — 每小时自动从桌面Excel同步", srcSnapshot: "SRC: 每日17:00快照",
+    probSrcFmt: "SRC: 共{n}条 / {m}线体", attModalTitle: "👥 录入当日出勤", attExHint: "当日出勤 · 填写", fDate: "日期",
+    expandAtt: "查看完整出勤表", expandProb: "查看全部问题点", expandTrend: "查看详细趋势图",
+    detailClose: "关闭", trendModeAll: "全部线体", trendModeSel: "仅选中", trendModeOver: "仅≥100%",
+    histToday: "📌 今日实时", histWeekTitle: "🗓 本周 vs 上周", histMonthTitle: "📅 本月 vs 上月",
+    thUpphRate: "UPPH达成%", thScore: "综合分", thRank: "今日排名",
+    thWeekRate: "周均达成%", thWeekUpph: "周均UPPH%", thWeekVsPrev: "vs 上周",
+    thMonthRate: "月均达成%", thMonthUpph: "月均UPPH%", thMonthVsPrev: "vs 上月",
+    thChamp: "🏆 站擂第一", thLast: "🔻 末位"
+  },
+  en: {
+    docTitle: "Production Live Dashboard", boardTitle: "Production Live Dashboard",
+    connConnecting: "Connecting…", notifOn: "🔔 Enable stall alerts", stallBanner: "⚠️ Breakdown lines: ",
+    kpiRun: "🟢 Running Lines", kpiRunSub: "Main 8", kpiEff: "⚡ Avg. Efficiency", kpiEffSub: "Main lines weighted by plan",
+    kpiHit: "🏆 Lines ≥90%", kpiHitSub: "Achieved", kpiFinal: "🔵 Final Output", kpiFinalSub: "Final A-D total",
+    kpiMotor: "🟠 Motor Output", kpiMotorSub: "Motor H/S/F/WL total",
+    panelMainTitle: "📋 Main Lines · Output vs Plan · Click to sort", otherLines: "Other Lines",
+    thLine: "Line", thOutput: "Output (Blue=Actual · Orange=Plan)", thDiff: "Diff", thRate: "Rate%", thStatus: "Status",
+    panelChartTitle: "📊 Hourly Output / Efficiency (Main)",
+    lgActual: "Actual", lgPlan: "Plan (Live)", hourlyOut: "Hourly",
+    segToggleTitle: "Align each segment actual vs target; number = output/target of that hour",
+    hintSeg: "Bars aligned · Blue=met · Gray=gap",
+    lgEff: "UPPH Rate (Actual÷Target)", hintUpph: "UPPH = Output÷Hours÷Manpower", editHead: "✏️ Edit Manpower",
+    sortByUph: "Click header to sort", thTargetDay: "Target/Day",
+    editHeadTitle: "✏️ Edit Line Headcount",
+    headHint: "UPPH rate = Actual UPPH ÷ Target UPPH; Actual UPPH = Output ÷ Worked hrs ÷ Manpower; Target UPPH = Plan output ÷ Worked hrs ÷ Manpower. Manpower editable daily, applied automatically.",
+    save: "💾 Save",
+    stStall: "Breakdown", stRun: "Running", stOff: "Off", stUnknown: "Unknown", stPlannedOff: "Planned Off",
+    kpiRunSubFmt: "Main {m} · Total {a}", noHit: "None ≥90%",
+    notifTitle: "⚠️ Line breakdown: ", notifBody: "No output change ~5min, check line · ",
+    noData: "No data", am: "AM", pm: "PM", setPeople: "Set HC",
+    headTitleFmt: "{name} — UPPH rate = Actual UPPH ÷ Target UPPH ({p}%)",
+    shiftDay: "Day", shiftSwing: "Swing", shiftNight: "Night",
+    useHttp: "⚠️ Open via http://localhost:8080",
+    fileErr: "⚠️ file:// cannot load data — open via http://localhost:8080",
+    connOk: "Connected · Live", connDelay: "Data delay {s}s", connDown: "Data offline {m}min", connNoData: "No data",
+    connFailed: "Connection failed", connFailedMsg: "Connection failed: {m}", otherLinesFmt: "Other Lines ({n})",
+    histBtn: "📊 History", histTitle: "📊 History · Weekly/Monthly · Rankings",
+    histReplayTitle: "📅 Date Replay", histLoad: "Load", histReplayHint: "Snapshots archived daily 17:00 → history/date.json",
+    modeDaily: "Basic", modeDetail: "Detail", modeTitle: "Toggle Basic/Detail mode",
+    collapseTitle: "Hide module", probExHint: "Auto-updates hourly",
+    cancel: "Cancel",
+    attTitle: "👥 Attendance", probTitle: "🚨 Reasons · Key Issues", trendTitle: "📈 Rate Trend",
+    probLineTh: "Line", probNoData: "No problems — auto-sync from Excel hourly", srcSnapshot: "SRC: Daily 17:00 snapshot",
+    probSrcFmt: "SRC: {n} items / {m} lines", attModalTitle: "👥 Enter Attendance", attExHint: "Today · Manual entry", fDate: "Date",
+    expandAtt: "Full attendance table", expandProb: "All problem details", expandTrend: "Detailed trend chart",
+    detailClose: "Close", trendModeAll: "All lines", trendModeSel: "Selected", trendModeOver: "Over 100%",
+    histToday: "📌 Today (Live)", histWeekTitle: "🗓 This Week vs Last Week", histMonthTitle: "📅 This Month vs Last Month",
+    thUpphRate: "UPPH Rate%", thScore: "Score", thRank: "Today Rank",
+    thWeekRate: "Week Rate%", thWeekUpph: "Week UPPH%", thWeekVsPrev: "vs Last Wk",
+    thMonthRate: "Month Rate%", thMonthUpph: "Month UPPH%", thMonthVsPrev: "vs Last Mo",
+    thChamp: "🏆 1st", thLast: "🔻 Last"
+  }
+};
+const LANG_KEY = "pdtiii_lang";
+let lang = "zh";
+try { lang = localStorage.getItem(LANG_KEY) || "zh"; } catch (e) { lang = "zh"; }
+function t(k) { const d = I18N[lang] || I18N.zh; return d[k] !== undefined ? d[k] : (I18N.zh[k] !== undefined ? I18N.zh[k] : k); }
+function applyStaticI18n() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  document.title = t("docTitle");
+  document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.getAttribute("data-i18n")); });
+  document.querySelectorAll("[data-i18n-title]").forEach(el => { el.setAttribute("title", t(el.getAttribute("data-i18n-title"))); });
+  const lb = document.getElementById("langBtn");
+  if (lb) lb.textContent = lang === "zh" ? "EN" : "中文";
+}
+function toggleLang() {
+  lang = lang === "zh" ? "en" : "zh";
+  try { localStorage.setItem(LANG_KEY, lang); } catch (e) {}
+  applyStaticI18n();
+  updatePeriodLabel();
+  // 语言切换后重渲染问题点 (泰语原文/中文翻译)
+  if (typeof renderExtra === "function") { try { renderExtra(); } catch (e) {} }
+  renderAll();
+  refresh();
+}
+// script 在 body 底部同步执行，DOM 已就绪，直接绑定
+(function () {
+  const lb = document.getElementById("langBtn");
+  if (lb) lb.addEventListener("click", toggleLang);
+  applyStaticI18n();
+})();
+// 数据源自动切换: 本机/局域网打开 -> 读本地 data.json; 线上(GitHub Pages https)打开 -> 读 Firebase 云端
+const IS_LOCAL = location.protocol === "file:" ||
+  location.hostname === "localhost" || location.hostname === "127.0.0.1";
+const DATA_URL = IS_LOCAL
+  ? "data.json"
+  : "https://dm111-e8a7d-default-rtdb.firebaseio.com/pdtiii.json";
+
+// ⚙️ 主要线体配置（按此顺序显示）
+const MAIN_LINES = [
+  "Final A line", "Final B Line", "Final C line", "Final D line",
+  "Motor H-Series", "Motor S-Series", "Motor F-Series", "Motor WL"
+];
+function normName(n) { return String(n || "").toLowerCase().replace(/\s+/g, ""); }
+// ★ Set 内容也过 normName, 否则带空格永远匹配不上
+const FINAL_SET = new Set(["final a line", "final b line", "final c line", "final d line"].map(normName));
+const MOTOR_SET = new Set(["motor h-series", "motor s-series", "motor f-series", "motor wl"].map(normName));
+const MAIN_SET = new Set(MAIN_LINES.map(normName));
+
+const state = { lines: [], updatedAt: null, hourly: {} };
+
+function fmt(n) {
+  if (n === null || n === undefined || isNaN(n)) return "-";
+  return Number(n).toLocaleString("en-US");
+}
+function fmt1(n) {
+  if (n === null || n === undefined || isNaN(n)) return "-";
+  return Number(n).toFixed(1);
+}
+function shortName(name) {
+  return String(name || "").replace(/ line$/i, "").replace(/-Series$/i, "").trim();
+}
+function hitEff(e) { return e !== null && e !== undefined && !isNaN(e) && e >= 90; }
+function effClass(e) {
+  if (e === null || e === undefined || isNaN(e)) return "";
+  return e >= 90 ? "eff-ok" : "eff-bad";
+}
+function signClass(v) {
+  if (v === null || v === undefined || isNaN(v)) return "zero";
+  if (v > 0) return "pos";
+  if (v < 0) return "neg";
+  return "zero";
+}
+function isStalled(l) { return l.stalled === true || l.status === "STALLED"; }
+// ★ 2026-08-24: 计划停产线体名单(带日期范围) — 灰色标注"计划停产", 不触发红色停滞预警
+//   本周 Motor WL 计划停产 (08-24 ~ 08-28), 到期自动恢复; 后续停产修改此表即可
+const PLANNED_OFF = [
+  { name: "Motor WL", from: "2026-08-24", to: "2026-08-28" }
+];
+function isPlannedOff(l) {
+  if (!l || !l.name) return false;
+  const t = todayKey();
+  const n = l.name.trim().toLowerCase();
+  for (const p of PLANNED_OFF) {
+    if (n !== p.name.toLowerCase()) continue;
+    if (t >= p.from && t <= p.to) return true;
+  }
+  return false;
+}
+function stHtml(l) {
+  let stCls, stTxt;
+  if (isPlannedOff(l)) { stCls = "off"; stTxt = t("stPlannedOff"); }
+  else if (isStalled(l)) { stCls = "stall"; stTxt = t("stStall") + stallTimeHtml(l); }
+  else if (l.status === "RUNNING" || l.status === "运行") { stCls = "run"; stTxt = t("stRun"); }
+  else if (l.status === "OFF" || l.status === "-OFF") { stCls = "off"; stTxt = t("stOff"); }
+  else { stCls = "err"; stTxt = l.status || t("stUnknown"); }
+  return `<span class="st ${stCls}">${stTxt}</span>`;
+}
+// ---- 可点击列排序 ----------------
+const SORT_KEY = "pdtiii_sort_v1";
+let sortState = { key: "uph", dir: -1 };   // -1=降序 1=升序; 默认按 UPH 从高到低(与旧版一致)
+try {
+  const _s = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
+  if (_s && _s.key && (_s.dir === 1 || _s.dir === -1)) sortState = _s;
+} catch (e) { /* ignore */ }
+function sortVal(l, key) {
+  switch (key) {
+    case "name":   return String(l.name || "");
+    case "target": return Number(l.target) || 0;
+    case "actual": return Number(l.actual) || 0;
+    case "plan":   return Number(l.plan) || 0;
+    case "cb":     return Number(l.cb) || 0;
+    case "eff":    return (l.eff === null || l.eff === undefined || isNaN(l.eff)) ? -Infinity : Number(l.eff);
+    case "uph": { const u = uphOf(l, new Date()); return (u === null || u === undefined || isNaN(u)) ? -Infinity : u; }
+    case "status": return String(l.status || "");
+    default:       return 0;
+  }
+}
+function sortLines(arr) {
+  const a = arr.slice();
+  a.sort((x, y) => {
+    const vx = sortVal(x, sortState.key), vy = sortVal(y, sortState.key);
+    const ix = vx === -Infinity, iy = vy === -Infinity;
+    if (ix || iy) {
+      if (ix && iy) return x.name.localeCompare(y.name);
+      return ix ? 1 : -1;   // 无效值始终排最后
+    }
+    let r = (typeof vx === "string") ? vx.localeCompare(vy) : (vx - vy);
+    if (r === 0) r = x.name.localeCompare(y.name);
+    return r * sortState.dir;
+  });
+  return a;
+}
+function splitLines() {
+  const now = new Date();
+  const main = [], other = [];
+  state.lines.forEach(l => (MAIN_SET.has(normName(l.name)) ? main : other).push(l));
+  // ★ 按 UPH 从高到低排名; UPH 无效排最后; 同分按名称
+  const byUph = (a, b) => {
+    const ua = uphOf(a, now), ub = uphOf(b, now);
+    const ea = (ua === null || ua === undefined || isNaN(ua)) ? -Infinity : ua;
+    const eb = (ub === null || ub === undefined || isNaN(ub)) ? -Infinity : ub;
+    if (eb !== ea) return eb - ea;
+    return a.name.localeCompare(b.name);
+  };
+  main.sort(byUph);
+  other.sort(byUph);
+  return { main, other };
+}
+function lineNameCls(l) {
+  if (l.eff === null || l.eff === undefined || isNaN(l.eff)) return "";
+  return hitEff(l.eff) ? "hit-name" : "miss-name";
+}
+
+// ---- 主表: 每行横向条形图 (Actual vs Plan) ----
+function hbarHtml(l, maxV) {
+  const aw = maxV > 0 ? Math.max(0, (Number(l.actual) || 0) / maxV * 100) : 0;
+  const pw = maxV > 0 ? Math.max(0, (Number(l.plan) || 0) / maxV * 100) : 0;
+  const stalledCls = isPlannedOff(l) ? " style=\"border:1px solid rgba(139,148,158,.45)\"" : (isStalled(l) ? " style=\"border:1px solid rgba(248,81,73,.6)\"" : "");
+  return `<div class="hbar"${stalledCls}><div class="p100"></div>` +
+    `<div class="plan" style="width:${pw}%"></div>` +
+    `<div class="act" style="width:${aw}%"></div></div>`;
+}
+
+function renderTable() {
+  const now = new Date(); // ★ v5.17.2 修复: uphTxt(l, now) 需要 now — 之前未定义导致渲染抛错, 误报"连接失败"
+  const { main, other } = splitLines();
+  // ★ 表格按用户所选列排序(副本), 图表仍用 splitLines 的 UPH 顺序
+  const mainSorted = sortLines(main);
+  const otherSorted = sortLines(other);
+  // 全表最大产量用于条宽比例
+  const maxV = Math.max(1, ...mainSorted.map(l => Math.max(l.actual || 0, l.plan || 0)));
+  const tb = document.querySelector("#mainTable tbody");
+  tb.innerHTML = "";
+  mainSorted.forEach((l, idx) => {
+    const tr = document.createElement("tr");
+    const miss = l.eff !== null && !isNaN(l.eff) && !hitEff(l.eff);
+    if (isPlannedOff(l)) tr.className = "planned-off";
+    else if (isStalled(l)) tr.className = "stalled-row lv" + stallLevelOf(l);
+    else if (miss) tr.className = "miss";
+    const dot = isPlannedOff(l) ? '<span class="stall-dot"></span>' : (isStalled(l) ? '<span class="stall-dot"></span>' : "");
+    tr.innerHTML =
+      `<td class="rank">${idx + 1}</td>` +
+      `<td class="line-name ${lineNameCls(l)}">${dot}${l.name.trim()}</td>` +
+      `<td class="bar-cell">${hbarHtml(l, maxV)}</td>` +
+      `<td>${fmt(l.actual)}</td>` +
+      `<td>${fmt(l.plan)}</td>` +
+      `<td class="${signClass(l.cb)}">${fmt(l.cb)}</td>` +
+      `<td class="${effClass(l.eff)}">${fmt1(l.eff)}</td>` +
+      `<td class="uph-cell">${uphTxt(l, now)}</td>` +
+      `<td>${stHtml(l)}</td>`;
+    tb.appendChild(tr);
+  });
+  const otb = document.querySelector("#otherTable tbody");
+  otb.innerHTML = "";
+  otherSorted.forEach((l, idx) => {
+    const tr = document.createElement("tr");
+    const miss = l.eff !== null && !isNaN(l.eff) && !hitEff(l.eff);
+    if (isPlannedOff(l)) tr.className = "planned-off";
+    else if (isStalled(l)) tr.className = "stalled-row lv" + stallLevelOf(l);
+    else if (miss) tr.className = "miss";
+    const dot = isPlannedOff(l) ? '<span class="stall-dot"></span>' : (isStalled(l) ? '<span class="stall-dot"></span>' : "");
+    tr.innerHTML =
+      `<td class="rank">${idx + 1}</td>` +
+      `<td class="line-name ${lineNameCls(l)}">${dot}${l.name.trim()}</td>` +
+      `<td>${fmt(l.target)}</td>` +
+      `<td>${fmt(l.plan)}</td>` +
+      `<td>${fmt(l.actual)}</td>` +
+      `<td class="${signClass(l.cb)}">${fmt(l.cb)}</td>` +
+      `<td class="${effClass(l.eff)}">${fmt1(l.eff)}</td>` +
+      `<td>${stHtml(l)}</td>`;
+    otb.appendChild(tr);
+  });
+  document.getElementById("otherBtn").textContent = t("otherLinesFmt").replace("{n}", other.length);
+  document.getElementById("modalTitle").textContent = t("otherLinesFmt").replace("{n}", other.length);
+  return { main, other };
+}
+
+// ---- 列头排序交互: 点列头切换排序键/方向, 箭头用 CSS ::after 渲染(不占 textContent, 语言切换不丢) ----
+function renderSortArrows() {
+  document.querySelectorAll("th[data-sort]").forEach(th => {
+    const active = th.dataset.sort === sortState.key;
+    th.classList.toggle("sorted", active);
+    th.classList.toggle("desc", active && sortState.dir < 0);
+    th.classList.toggle("asc", active && sortState.dir > 0);
+  });
+}
+function setSort(key) {
+  if (sortState.key === key) sortState.dir = -sortState.dir;  // 同列再点 → 翻转方向
+  else { sortState.key = key; sortState.dir = -1; }           // 新列默认降序
+  try { localStorage.setItem(SORT_KEY, JSON.stringify(sortState)); } catch (e) { /* ignore */ }
+  renderSortArrows();
+  renderTable();   // 只重排表格, 图表不动
+}
+function setupSort() {
+  document.querySelectorAll("th[data-sort]").forEach(th => {
+    th.addEventListener("click", () => setSort(th.dataset.sort));
+  });
+  renderSortArrows();
+}
+
+function renderKPIs(main) {
+  const running = main.filter(l => l.status === "RUNNING" || l.status === "运行");
+  document.getElementById("kpiRun").textContent = running.length;
+  document.getElementById("kpiRunSub").textContent = t("kpiRunSubFmt").replace("{m}", main.length).replace("{a}", state.lines.length);
+  // ★ v8.7.1 修复: 平均效率不能用"只算 RUNNING 的简单平均"——主要线多数 STALLED 时只剩 1 条在算, 严重失真
+  //   改为: 主要线中有效率(实际>0 或有 plan)的全部参与, 按计划量加权平均 = Σ(actual)/Σ(plan)
+  const pool = main.filter(l => l.eff !== null && !isNaN(l.eff) && (Number(l.plan) > 0 || Number(l.actual) > 0));
+  const totAct = pool.reduce((s, l) => s + (Number(l.actual) || 0), 0);
+  const totPlan = pool.reduce((s, l) => s + (Number(l.plan) || 0), 0);
+  const avgEff = totPlan > 0 ? (totAct / totPlan) * 100 : (pool.length ? pool.reduce((s, l) => s + l.eff, 0) / pool.length : 0);
+  const el = document.getElementById("kpiEff");
+  el.textContent = avgEff ? avgEff.toFixed(1) + "%" : "-";
+  el.className = "value " + (avgEff >= 90 ? "green" : avgEff ? "red" : "");
+  const hit = running.filter(l => hitEff(l.eff));
+  const eh = document.getElementById("kpiHit");
+  eh.textContent = hit.length;
+  eh.className = "value " + (hit.length > 0 ? "green" : "orange");
+  const hitNames = hit.map(l => shortName(l.name)).join(lang === "zh" ? "、" : ", ");
+  document.getElementById("kpiHitSub").textContent = hitNames || t("noHit");
+  const totalFinal = main.filter(l => FINAL_SET.has(normName(l.name))).reduce((s, l) => s + (Number(l.cum) || 0), 0);
+  const totalMotor = main.filter(l => MOTOR_SET.has(normName(l.name))).reduce((s, l) => s + (Number(l.cum) || 0), 0);
+  document.getElementById("kpiFinal").textContent = totalFinal ? fmt(totalFinal) : "-";
+  document.getElementById("kpiMotor").textContent = totalMotor ? fmt(totalMotor) : "-";
+}
+
+// ---- 停滞分级告警 v5.18: 追踪每条主要线 actual 最后变化时刻 → 停滞时长 + 分级 ----
+//   时长依据: 前端记录 actual 每次变化的时间戳(localStorage 持久化, 刷新不丢),
+//   停滞时长 = now - 最后变化时刻。分级: <15min 黄 / 15-30min 橙 / >=30min 红(闪烁)
+const STALL_START_KEY = "pdtiii_stall_start_v1";
+const STALL_LAST_KEY = "pdtiii_stall_last_v1";
+let stallStartMap = {};
+let lastActualMap = {};
+try { stallStartMap = JSON.parse(localStorage.getItem(STALL_START_KEY) || "{}") || {}; } catch (e) { stallStartMap = {}; }
+try { lastActualMap = JSON.parse(localStorage.getItem(STALL_LAST_KEY) || "{}") || {}; } catch (e) { lastActualMap = {}; }
+function stallMinutesOf(l) {
+  const ts = stallStartMap[normName(l.name)];
+  if (!ts) return 0;
+  return Math.max(0, Math.floor((Date.now() - ts) / 60000));
+}
+function stallLevelOf(l) {
+  if (!isStalled(l)) return 0;
+  const m = stallMinutesOf(l);
+  if (m >= 30) return 3;
+  if (m >= 15) return 2;
+  return 1;
+}
+function stallTimeHtml(l) {
+  const lv = stallLevelOf(l);
+  if (!lv) return "";
+  return `<span class="stall-time lv${lv}">${stallMinutesOf(l)}m</span>`;
+}
+// ★ 每次 refresh 数据到位后调用: 更新 actual 最后变化时间戳(localStorage 持久化, 刷新不丢)
+//   actual 变化 >=0.5 → 记为新起点; 未变 → 沿用旧时间戳, 停滞时长持续累积
+function trackStallStart() {
+  const nowTs = Date.now();
+  let changed = false;
+  state.lines.forEach(l => {
+    const k = normName(l.name);
+    if (!MAIN_SET.has(k)) return;  // ★ 只追踪主要线体
+    const a = Number(l.actual) || 0;
+    const prev = lastActualMap[k];
+    if (prev === undefined || Math.abs(a - prev) >= 0.5) {
+      lastActualMap[k] = a;
+      stallStartMap[k] = nowTs;
+      changed = true;
+    }
+  });
+  // 清理已消失的线(只清 lastActual, 时间戳保留避免误判)
+  Object.keys(lastActualMap).forEach(k => {
+    if (!state.lines.some(l => normName(l.name) === k)) delete lastActualMap[k];
+  });
+  if (changed) {
+    try {
+      localStorage.setItem(STALL_START_KEY, JSON.stringify(stallStartMap));
+      localStorage.setItem(STALL_LAST_KEY, JSON.stringify(lastActualMap));
+    } catch (e) { /* ignore */ }
+  }
+}
+
+// ---- 历史统计 v5.18: 每日快照(localStorage) → 周/月对比 + 站擂排名 ----
+//   每天每次 refresh 更新当天记录(覆盖); 跨天后保留 → 自然形成历史
+//   记录字段(每条主要线): rate=达成率% eff, uph, upph=UPPH达成率%
+const HIST_KEY = "pdtiii_hist_v1";
+let histStore = {};
+try { histStore = JSON.parse(localStorage.getItem(HIST_KEY) || "{}") || {}; } catch (e) { histStore = {}; }
+function todayKey() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function dayKeyOf(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function recordToday() {
+  const now = new Date();
+  const k = todayKey();
+  const rec = {};
+  state.lines.forEach(l => {
+    const nk = normName(l.name);
+    if (!MAIN_SET.has(nk)) return;
+    const uph = uphOf(l, now);
+    const upph = upphRateOf(l, now);
+    rec[nk] = {
+      rate: (l.eff !== null && !isNaN(l.eff)) ? l.eff : null,
+      uph: uph == null ? null : Number(uph.toFixed(2)),
+      upph: upph == null ? null : Number(upph.toFixed(1)),
+      ts: Date.now()
+    };
+  });
+  histStore[k] = rec;
+  try { localStorage.setItem(HIST_KEY, JSON.stringify(histStore)); } catch (e) { /* ignore */ }
+}
+// 综合得分: 达成率(0-100)、UPPH达成率(%) 两指标平均; 缺任一用另一个; 全缺 null
+function compScore(rec) {
+  if (!rec) return null;
+  const vals = [rec.rate, rec.upph].filter(v => v != null && !isNaN(v));
+  if (!vals.length) return null;
+  return vals.reduce((s, v) => s + v, 0) / vals.length;
+}
+// 一天内各线排名: 返回 { name: rank(1=第一) }, 按 compScore 降序; 同分按 uph 次排
+function rankOfDay(dayRec) {
+  const entries = Object.entries(dayRec || {}).map(([k, r]) => ({ k, score: compScore(r), r }));
+  entries.sort((a, b) => (b.score || -Infinity) - (a.score || -Infinity) ||
+    ((b.r.uph || -Infinity) - (a.r.uph || -Infinity)));
+  const map = {};
+  entries.forEach((e, i) => { map[e.k] = i + 1; });
+  return map;
+}
+// 汇总 N 天: 平均 rate/upph/uph + 站擂次数(冠军=当天第一, 末位=当天最后且>=3条线有得分)
+function aggregate(days) {
+  const agg = {};
+  days.forEach(dayRec => {
+    if (!dayRec) return;
+    const ranks = rankOfDay(dayRec);
+    const scored = Object.keys(ranks).length;
+    Object.entries(dayRec).forEach(([k, r]) => {
+      const a = agg[k] || (agg[k] = { rate: [], uph: [], upph: [], first: 0, last: 0, days: 0 });
+      if (r.rate != null) a.rate.push(r.rate);
+      if (r.uph != null) a.uph.push(r.uph);
+      if (r.upph != null) a.upph.push(r.upph);
+      a.days++;
+      if (scored >= 3) {
+        if (ranks[k] === 1) a.first++;
+        if (ranks[k] === scored) a.last++;
+      }
+    });
+  });
+  const out = {};
+  Object.entries(agg).forEach(([k, a]) => {
+    const avg = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null;
+    out[k] = { rate: avg(a.rate), uph: avg(a.uph), upph: avg(a.upph), first: a.first, last: a.last, days: a.days };
+  });
+  return out;
+}
+function weekStartOf(d) { const x = new Date(d); const w = (x.getDay() + 6) % 7; x.setDate(x.getDate() - w); x.setHours(0,0,0,0); return x; }
+function monthStartOf(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+// 取某范围的天记录: [{key, rec}]
+function rangeDays(from, to) {
+  const out = [];
+  for (let t = new Date(from); t <= to; t.setDate(t.getDate() + 1)) {
+    const k = dayKeyOf(t);
+    if (histStore[k]) out.push(histStore[k]);
+  }
+  return out;
+}
+function weekAgg(offsetWeeks) {
+  const now = new Date();
+  const ws = weekStartOf(now);
+  ws.setDate(ws.getDate() + offsetWeeks * 7);
+  const we = new Date(ws); we.setDate(we.getDate() + 6); we.setHours(23, 59, 59, 999);
+  return aggregate(rangeDays(ws, we));
+}
+function monthAgg(offsetMonths) {
+  const now = new Date();
+  const ms = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
+  const me = new Date(ms.getFullYear(), ms.getMonth() + 1, 0); me.setHours(23, 59, 59, 999);
+  return aggregate(rangeDays(ms, me));
+}
+// ---- 停滞检测 → 横幅 + 系统通知（★ 只针对主要线体） ----
+function checkStalls() {
+  const stalled = state.lines.filter(l => isStalled(l) && !isPlannedOff(l) && MAIN_SET.has(normName(l.name)));
+  const banner = document.getElementById("stallBanner");
+  if (stalled.length) {
+    banner.style.display = "flex";
+    // ★ 横幅按最严重级别着色 + 每条附停滞时长
+    const maxLv = stalled.reduce((m, l) => Math.max(m, stallLevelOf(l)), 0);
+    banner.style.borderColor = maxLv >= 3 ? "rgba(248,81,73,.8)" : (maxLv === 2 ? "rgba(248,81,73,.5)" : "rgba(210,153,34,.5)");
+    banner.style.background = maxLv >= 2 ? "rgba(248,81,73,.18)" : "rgba(210,153,34,.12)";
+    document.getElementById("stallList").innerHTML = stalled
+      .map(l => `${shortName(l.name)} ${stallTimeHtml(l)}`)
+      .join(lang === "zh" ? "、" : ", ");
+  } else {
+    banner.style.display = "none";
+  }
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const nowTs = Date.now();
+  let notified = {};
+  try { notified = JSON.parse(localStorage.getItem("pdtiii_notified") || "{}"); } catch (e) { notified = {}; }
+  let changed = false;
+  stalled.forEach(l => {
+    const key = normName(l.name);
+    const last = notified[key] || 0;
+    if (nowTs - last > 10 * 60 * 1000) {
+      notified[key] = nowTs;
+      changed = true;
+      try {
+        new Notification(t("notifTitle") + shortName(l.name), {
+          body: t("notifBody") + new Date().toLocaleTimeString(lang === "zh" ? "zh-CN" : "en-GB", { hour12: false })
+        });
+      } catch (e) { /* ignore */ }
+    }
+  });
+  Object.keys(notified).forEach(k => { if (nowTs - notified[k] > 24 * 3600 * 1000) delete notified[k]; });
+  if (changed) { try { localStorage.setItem("pdtiii_notified", JSON.stringify(notified)); } catch (e) { /* ignore */ } }
+}
+function initNotif() {
+  const btn = document.getElementById("notifBtn");
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "granted") return;
+  if (Notification.permission === "default") btn.style.display = "inline-block";
+  btn.addEventListener("click", () => {
+    Notification.requestPermission().then(p => {
+      if (p === "granted") btn.style.display = "none";
+    });
+  });
+}
+
+// ---- 小时产量分段: 实际柱与目标柱共用同一时段骨架(逐段对齐, 直接对比每时段实际 vs 目标差异) ----
+// 编号规则: 工作时间 8-17点, 12-13点午休忽略
+//   8-9=1, 9-10=2, 10-11=3, 11-12=4, (12-13午休), 13-14=5, 14-15=6, 15-16=7, 16-17=8
+function hourNo(lab) {
+  if (lab >= 8 && lab <= 11) return lab - 7;   // 8→1, 9→2, 10→3, 11→4
+  if (lab >= 13 && lab <= 16) return lab - 8;  // 13→5, 14→6, 15→7, 16→8
+  return null; // 12午休 / 其他不统计
+}
+// ★ 统一骨架: 每段同时含 actual(该时段实际产量) 与 plan(该时段目标)
+//   plan/actual 均来自 hourly 快照的定格累计值差分 → 时段一过即定格, 不再随实时数据变化
+//   live 段(当前进行中的小时) = 实时累计 − 上一快照定格 → 继续累计变化
+//   base 段 = 启动前累计(今天上午缺小时数据): 实际柱/目标柱都画灰底, 段内写"上午"+累计值
+//   ★ 目的: 同一时段的实际段与目标段在两根柱子上位置完全一致 → 逐段比高度 = 直接看差异
+function segsOf(name, curActual) {
+  const snaps = (state.hourly || {})[name] || [];
+  const ln = state.lines.find(x => x.name === name) || {};
+  const livePlan = Number(ln.plan) || 0; // 实时累计目标(与表格 Plan 列一致, 仅 live 段用)
+  if (!snaps.length) return [];
+  const nowH = new Date().getHours();
+  const segs = [];
+  if (snaps[0].h > 8) {
+    // ★ 当天中途启动: 上午(13点前)合成一个 base 段, 下午(13点起)逐时差分(整点分段)
+    let baseIdx = snaps.length - 1;
+    for (let i = 0; i < snaps.length; i++) {
+      if (snaps[i].h >= 13) { baseIdx = i; break; }
+    }
+    const baseSnap = snaps[baseIdx];
+    segs.push({
+      h: baseSnap.h, lab: null, live: false, base: true,
+      actual: baseSnap.actual || 0,
+      plan: baseSnap.plan || 0
+    });
+    let prevA = baseSnap.actual || 0;
+    let prevP = baseSnap.plan || 0;
+    let prevH = baseSnap.h;
+    for (let i = baseIdx + 1; i < snaps.length; i++) {
+      const s = snaps[i];
+      if (hourNo(prevH) == null) { prevA = s.actual || 0; prevP = s.plan || 0; prevH = s.h; continue; } // ★ 午休段跳过
+      segs.push({
+        h: s.h, lab: prevH, live: false,
+        actual: Math.max(0, (s.actual || 0) - prevA),
+        plan: Math.max(0, (s.plan || 0) - prevP)
+      });
+      prevA = s.actual || 0; prevP = s.plan || 0; prevH = s.h;
+    }
+    if (curActual != null && prevH <= nowH && hourNo(prevH) != null) {
+      segs.push({
+        h: nowH, lab: prevH, live: true,
+        actual: Math.max(0, (curActual || 0) - prevA),
+        plan: Math.max(0, livePlan - prevP)
+      });
+    }
+    return segs;
+  }
+  // 完整日(8点起): 全天逐时差分
+  let prevA = 0;
+  let prevP = 0;
+  let prevH = snaps[0].h;
+  for (let i = 1; i < snaps.length; i++) {
+    const s = snaps[i];
+    if (hourNo(prevH) == null) { prevA = s.actual || 0; prevP = s.plan || 0; prevH = s.h; continue; } // ★ 午休段跳过
+    segs.push({
+      h: s.h, lab: prevH, live: false,
+      actual: Math.max(0, (s.actual || 0) - prevA),
+      plan: Math.max(0, (s.plan || 0) - prevP)
+    });
+    prevA = s.actual || 0; prevP = s.plan || 0; prevH = s.h;
+  }
+  if (curActual != null && prevH <= nowH && hourNo(prevH) != null) {
+    segs.push({
+      h: nowH, lab: prevH, live: true,
+      actual: Math.max(0, (curActual || 0) - prevA),
+      plan: Math.max(0, livePlan - prevP)
+    });
+  }
+  return segs;
+}
+// ---- 目标柱分段(回退/关闭分段时用): 每段目标 = plan ÷ 已过时段数(均匀相等), 柱顶累计 = plan ----
+function planSegsOf(name, nowH) {
+  const ln = state.lines.find(x => x.name === name) || {};
+  const plan = ln.plan || 0; // 实时累计目标(与表格 Plan 列一致)
+  let n = 0;
+  for (let h = 8; h <= nowH && h <= 16; h++) {
+    if (h === 12) continue;
+    n++;
+  }
+  if (!n) return [];
+  const per = plan / n;
+  const segs = [];
+  for (let h = 8; h <= nowH && h <= 16; h++) {
+    if (h === 12) continue;
+    segs.push({ h: h, lab: h, live: (h === nowH), actual: per });
+  }
+  return segs;
+}
+// ---- 固定小时目标(回退用): 日目标 ÷ 8 个工作小时, 每段等高不变 ----
+function planSegs(target, nowH) {
+  const perH = (target || 0) / 8; // 8 个工作小时(8-9,9-10,10-11,11-12,午休,13-14,14-15,15-16,16-17)
+  const segs = [];
+  for (let h = 8; h <= nowH && h <= 16; h++) {
+    if (h === 12) continue; // 午休不计数
+    segs.push({ actual: perH, live: false, lab: h });
+  }
+  return segs;
+}
+// ★ v5.15 统一绘制: 两柱共用同一份 segs, 段骨架按目标值(plan)定位 → 段边界完全平行
+//   实际柱(key='actual'): 每段 = 蓝色(实际达成, 从段底向上) + 灰色(未达成缺口)
+//   目标柱(key='plan'): 每段 = 橙色(目标达成, 画满整段)
+//   ★ 两柱段边界线 y 位置相同(都由 plan 累计决定) → 完全平行, 逐段对比 = 蓝 vs 橙 + 灰缺口
+function drawStacked(ctx, cx, bw, segs, total, maxV, ch, padT, color, key) {
+  // ★ 柱顶 = plan 累计高度(两柱同 y, 数字统一标在柱顶上方)
+  const planTotalPix = segs.reduce((s, x) => s + (x.plan || 0), 0) / maxV * ch;
+  const topY = padT + ch - planTotalPix;
+  const totalH = Math.max(0, (total || 0) / maxV * ch);
+  if (!segs.length) {
+    // 无分段数据: 纯色累计柱
+    const base = padT + ch - totalH;
+    ctx.fillStyle = color;
+    ctx.fillRect(cx, base, bw, totalH);
+  } else {
+    let yAcc = padT + ch;
+    segs.forEach((s, idx) => {
+      const perH = Math.max(0, ((s.plan || 0) / maxV) * ch); // 段高 = 该时段目标(统一骨架)
+      yAcc -= perH;
+      if (perH < 0.5) return;
+      // ★ 灰色底 = 未达成缺口(目标 - 实际), 整段先铺灰
+      ctx.fillStyle = "#30363d";
+      ctx.fillRect(cx, yAcc, bw, perH);
+      // ★ 实际值(蓝)从段底往上画; 目标值(橙)画满整段
+      const v = key === "plan" ? (s.plan || 0) : Math.min(s.actual || 0, s.plan || 0);
+      const vPix = Math.max(0, (v / maxV) * ch);
+      if (vPix > 0.5) {
+        ctx.fillStyle = color;
+        ctx.fillRect(cx, yAcc + perH - vPix, bw, vPix);
+      }
+      // ★ 分割线: 段边界(plan 定位) → 两柱完全平行; 柱顶也画收尾线
+      ctx.fillStyle = "#0d1117";
+      ctx.fillRect(cx - 1, yAcc, bw + 2, 2);
+      if (idx === segs.length - 1) {
+        ctx.fillRect(cx - 1, yAcc - 2, bw + 2, 2);
+      }
+      // ★ 段内写数据: 实际柱写实际达成数, 目标柱写该时段目标数
+      //   已完成时段: 编号+数值写大一点; 当前小时(live): 数值写小一点(进行中, 未完成)
+      ctx.textAlign = "center";
+      const valTxt = String(Math.round(v));
+      const hNo = hourNo(s.lab);
+      // ★ 字体随段高自适应: 段越矮字越小, 避免第8段后文字放不下
+      const fBig = perH >= 26 ? 10 : perH >= 20 ? 9 : perH >= 15 ? 8 : perH >= 11 ? 7.5 : 7;
+      const fSml = Math.max(6.5, fBig - 1);
+      if (s.base || s.pm) {
+        // 上午/下午累计段: 灰底 + "上午"/"下午"标签 + 数值
+        const lbl = s.pm ? t("pm") : t("am");
+        if (perH >= 14) {
+          ctx.fillStyle = "#8b949e"; ctx.font = fSml + "px sans-serif";
+          ctx.fillText(lbl, cx + bw / 2, yAcc + perH / 2 - 3);
+          ctx.fillStyle = "#e6edf3"; ctx.font = "bold " + fBig + "px sans-serif";
+          ctx.fillText(valTxt, cx + bw / 2, yAcc + perH / 2 + 8);
+        } else if (perH >= 8) {
+          ctx.fillStyle = "#8b949e"; ctx.font = "bold " + fBig + "px sans-serif";
+          ctx.fillText(valTxt, cx + bw / 2, yAcc + perH / 2 + 3);
+        }
+      } else if (s.live) {
+        // ★ 当前小时(进行中): 数值稍微小一点, 编号也小, 不喧宾夺主
+        if (perH >= 14 && hNo != null) {
+          ctx.fillStyle = "#8b949e"; ctx.font = fSml + "px sans-serif";
+          ctx.fillText(String(hNo), cx + bw / 2, yAcc + perH / 2 - 1);
+          ctx.fillStyle = "#c9d1d9"; ctx.font = fBig + "px sans-serif";
+          ctx.fillText(valTxt, cx + bw / 2, yAcc + perH / 2 + 8);
+        } else if (perH >= 8) {
+          ctx.fillStyle = "#c9d1d9"; ctx.font = fBig + "px sans-serif";
+          ctx.fillText(valTxt, cx + bw / 2, yAcc + perH / 2 + 3);
+        }
+      } else {
+        if (perH >= 16 && hNo != null) {
+          // 段高足够: 两行 — 编号 + 数值
+          ctx.fillStyle = "#8b949e"; ctx.font = fSml + "px sans-serif";
+          ctx.fillText(String(hNo), cx + bw / 2, yAcc + perH / 2 - 1);
+          ctx.fillStyle = "#ffffff"; ctx.font = "bold " + fBig + "px sans-serif";
+          ctx.fillText(valTxt, cx + bw / 2, yAcc + perH / 2 + 8);
+        } else if (perH >= 9) {
+          // 段高一般: 只写数值
+          ctx.fillStyle = "#ffffff"; ctx.font = "bold " + fBig + "px sans-serif";
+          ctx.fillText(valTxt, cx + bw / 2, yAcc + perH / 2 + 3);
+        }
+      }
+    });
+  }
+  if (totalH > 0) {
+    // ★ 柱顶数字统一标在 plan 累计高度上方(两柱同 y), 实际柱写实际累计, 目标柱写目标累计
+    ctx.fillStyle = color; ctx.font = "9px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(fmt(total), cx + bw / 2, topY - 14);
+  }
+}
+
+// ★ 小时产出分段开关: 默认关闭(只显示全天累计)。勾选后实际柱/目标柱共用统一骨架逐段对齐对比
+const SEG_KEY = "pdtiii_seg_v1";
+let segShow = false;
+try { segShow = localStorage.getItem(SEG_KEY) === "1"; } catch (e) { segShow = false; }
+function toggleSeg() {
+  segShow = document.getElementById("segToggle").checked;
+  try { localStorage.setItem(SEG_KEY, segShow ? "1" : "0"); } catch (e) { /* ignore */ }
+  drawBar(splitLines().main);
+}
+
+function drawBar(main) {
+  const cv = document.getElementById("chartBar");
+  if (!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight || 230;
+  // ★ 2026-08-21 14:20 修复: 刚打开页面时 canvas 尚未完成首轮布局(clientWidth=0),
+  //   旧逻辑直接 return 导致图表空白, 只能等 10s 后定时刷新才恢复。改为 rAF 延迟重试,
+  //   最多重试 20 帧(约 330ms), 期间不放弃绘制。
+  if (W < 20) {
+    if ((drawBar._retry = (drawBar._retry || 0) + 1) <= 20) {
+      requestAnimationFrame(() => drawBar(main));
+    } else {
+      drawBar._retry = 0;
+    }
+    return;
+  }
+  drawBar._retry = 0;
+  // ★ 2026-08-21 14:35 修复: 尺寸未变化时禁止重置 canvas — canvas width/height 赋值会强制清空画布并重建 GPU 缓冲,
+  //   即使尺寸相同也会闪烁。仅在真实尺寸变化时才重置, 否则直接复用现有缓冲重绘。
+  const pw = Math.round(W * dpr), ph = Math.round(H * dpr);
+  if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const lines = main;
+  if (!lines.length) { ctx.fillStyle = "#8b949e"; ctx.font = "13px sans-serif"; ctx.fillText(t("noData"), W/2-24, H/2); return; }
+  const padL = 46, padB = 34, padT = 26;
+  const cw = W - padL - 12, ch = H - padT - padB;
+  // ★ maxV 基于各线 plan 累计(目标柱骨架)取最大 — 两柱共用同一骨架, 柱顶=plan 累计, 完全平行
+  //   (若某线 actual 超额超过 plan, 段内蓝色画满后不再延伸, 柱顶数字仍显示真实实际值)
+  const nowH = new Date().getHours();
+  const maxV = Math.max(1, ...lines.map(l => Math.max(l.plan || 0, l.actual || 0)));
+  const step = Math.ceil(maxV / 4 / 10) * 10;
+  ctx.strokeStyle = "#21262d"; ctx.fillStyle = "#8b949e"; ctx.font = "10px sans-serif";
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ch - (ch * i / 4);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - 8, y); ctx.stroke();
+    ctx.fillText(fmt(step * i), 4, y + 3);
+  }
+  const n = lines.length, slot = cw / n;
+  const bw = Math.min(20, slot * 0.3);
+  lines.forEach((l, i) => {
+    const cx = padL + slot * i + slot / 2;
+    // ★ 小时产出开关: 开启后实际柱/目标柱共用同一份 segs(统一骨架) → 段边界完全一致, 逐段对比差异
+    if (segShow) {
+      const segs = segsOf(l.name, l.actual);
+      // 实际柱(蓝): 每段画实际产量, 段内写该时段实际达成数
+      drawStacked(ctx, cx - bw - 1.5, bw, segs, l.actual, maxV, ch, padT, "#58a6ff", "actual");
+      // 目标柱(橙): 同一份 segs, 每段画目标产量(均匀), 段内写该时段目标数 → 与实际柱逐段对齐
+      drawStacked(ctx, cx + 1.5, bw, segs, l.plan || 0, maxV, ch, padT, "#d29922", "plan");
+    } else {
+      // 关闭分段: 全天累计纯色柱(柱顶=累计值), 不画横线不画编号 → 上午缺数据时显示统一
+      const aH = Math.max(0, (l.actual || 0) / maxV * ch);
+      ctx.fillStyle = "#58a6ff";
+      ctx.fillRect(cx - bw - 1.5, padT + ch - aH, bw, aH);
+      const pCum = l.plan || 0;
+      const pH = Math.max(0, pCum / maxV * ch);
+      ctx.fillStyle = "#d29922";
+      ctx.fillRect(cx + 1.5, padT + ch - pH, bw, pH);
+      ctx.fillStyle = "#58a6ff"; ctx.font = "9px sans-serif"; ctx.textAlign = "center";
+      if (aH > 0) ctx.fillText(fmt(l.actual), cx - bw - 1.5 + bw / 2, padT + ch - aH - 3);
+      ctx.fillStyle = "#d29922";
+      if (pH > 0) ctx.fillText(fmt(pCum), cx + 1.5 + bw / 2, padT + ch - pH - 3);
+    }
+    ctx.fillStyle = "#8b949e"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(shortName(l.name), cx, H - 10);
+  });
+  ctx.textAlign = "left";
+}
+
+// ---- UPPH 人效: 人数编辑(本地保存) + 计算 ----
+// 人数存储 localStorage: { 线体名: 人数 }
+const HEADS_KEY = "pdtiii_heads_v1";
+let headMap = {};
+try { headMap = JSON.parse(localStorage.getItem(HEADS_KEY) || "{}") || {}; } catch (e) { headMap = {}; }
+function headOf(name) {
+  const k = normName(name);
+  if (headMap[k] != null) return Number(headMap[k]) || 0;
+  return 0;
+}
+function setHead(name, v) {
+  headMap[normName(name)] = Number(v) || 0;
+  try { localStorage.setItem(HEADS_KEY, JSON.stringify(headMap)); } catch (e) { /* ignore */ }
+}
+// 已工作小时(净工时): 8:00 上班 → 20:20 下班; 休息: 10:00-10:10(10min) + 12:00-13:00午休(1h) + 15:05-15:15(10min) + 17:00-17:20(20min)
+//   封顶净工时 = (20:20-8:00=12h20m) - 100min休息 = 10h40m = 10.67h; 与 UPPH 目标分母 10.67h 口径一致
+// ★ 班次判断 (按班次开始小时查名; 当前看板数据从 8:00 开始累计 → 早班; 若以后支持多班次数据, 班次开始时间变化会自动跟随)
+const SHIFT_RANGES = [
+  { s: 8, e: 16, key: "shiftDay" },
+  { s: 16, e: 24, key: "shiftSwing" },
+  { s: 0, e: 8, key: "shiftNight" }
+];
+function shiftNameOfHour(h) {
+  for (const sh of SHIFT_RANGES) if (h >= sh.s && h < sh.e) return t(sh.key);
+  return "";
+}
+
+function workedHours(now) {
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const start = 8 * 60, end = 20 * 60 + 20;   // 8:00 上班 → 20:20 下班
+  if (mins <= start) return 0;
+  const mm = Math.min(mins, end);             // 产量实时累计, 封顶 20:20
+  let w = mm - start;
+  // 扣除休息: 上午 10:00-10:10, 午休 12:00-13:00, 下午 15:05-15:15, 17:00-17:20
+  const breaks = [
+    [10 * 60, 10 * 60 + 10],
+    [12 * 60, 13 * 60],
+    [15 * 60 + 5, 15 * 60 + 15],
+    [17 * 60, 17 * 60 + 20]
+  ];
+  for (const [bs, be] of breaks) {
+    const ov = mm - Math.max(start, bs);
+    if (ov > 0) w -= Math.min(be - bs, ov);
+  }
+  return Math.max(0, w) / 60;
+}
+// UPH = 实际产量 ÷ 实际工作小时(净工时, 不含人数)
+function uphOf(l, now) {
+  const w = workedHours(now);
+  if (!w) return null;
+  return (Number(l.actual) || 0) / w;
+}
+function uphTxt(l, now) {
+  const u = uphOf(l, now);
+  return u == null ? "-" : fmt1(u);
+}
+// 当前小时累计计划产量: ★ 优先用实时累计计划(工厂实时推送, 与表格 Plan 列一致)
+//   ⚠️ 2026-08-06 修复: 原逻辑只取 hourly 定格快照的 plan, 但快照在每小时首次出现时定格后不再更新
+//      (如 08:10 定格 plan=42, 实时已 105) → UPPH 目标严重滞后 → 达成率虚高(169% 实为 68%)
+function planNowOf(l, now) {
+  const live = Number(l.plan) || 0;
+  if (live > 0) return live;
+  const hourly = state.hourly || {};
+  const arr = hourly[l.name.trim()];
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const h = now.getHours();
+  let best = null, bestH = -1;
+  for (const s of arr) {
+    const sh = Number(s.h) || 0;
+    if (sh <= h && sh > bestH) { best = s; bestH = sh; }
+  }
+  return best ? (Number(best.plan) || 0) : null;
+}
+// UPPH达成率(日目标口径) = 实际产量 ÷ 日目标产量 × 100
+//   ★ 2026-08-06 v5.18.6 用户指定公式(第三次拍板, 最终口径):
+//     UPPH达成率 = 实际UPPH ÷ 目标UPPH
+//     实际UPPH = 累计产出 ÷ 累计工作时间(h) ÷ 人数
+//     目标UPPH = 累计目标(实时计划) ÷ 累计工作时间(h) ÷ 人数
+//   分子分母同除 w 和 n → 约掉 → 达成率 = 累计产出 ÷ 累计目标(planNow) × 100
+//     (与产出达成率 Rate% 同口径, 因实际/目标UPPH 分母都是同一 w/n)
+function upphRateOf(l, now) {
+  const n = headOf(l.name);
+  const w = workedHours(now);
+  if (!n || !w) return null;
+  const planNow = planNowOf(l, now);
+  if (!planNow) return null;
+  const actualUpph = (Number(l.actual) || 0) / w / n;
+  const targetUpph = planNow / w / n;
+  return actualUpph / targetUpph * 100;
+}
+function drawEff(main) {
+  const cv = document.getElementById("chartEff");
+  if (!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight || 180;
+  // ★ 2026-08-21 14:20 修复: 与 drawBar 相同, 首帧布局未完成时 rAF 重试 (最多20帧)
+  if (W < 20) {
+    if ((drawEff._retry = (drawEff._retry || 0) + 1) <= 20) {
+      requestAnimationFrame(() => drawEff(main));
+    } else {
+      drawEff._retry = 0;
+    }
+    return;
+  }
+  drawEff._retry = 0;
+  // ★ 2026-08-21 14:35 修复: 尺寸未变化时禁止重置 canvas (同 drawBar, 消除闪烁)
+  const pw = Math.round(W * dpr), ph = Math.round(H * dpr);
+  if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const lines = main;
+  if (!lines.length) { ctx.fillStyle = "#8b949e"; ctx.font = "13px sans-serif"; ctx.fillText(t("noData"), W/2-24, H/2); return; }
+  const padL = 40, padB = 34, padT = 22;
+  const cw = W - padL - 12, ch = H - padT - padB;
+  const now = new Date();
+  // ★ UPPH 达成率图表: 上限 = max(120%, 最高达成率向上取整到20), 达成率低时用 120% 不会太空
+  const maxRate = lines.reduce((m, l) => { const r = upphRateOf(l, now); return Math.max(m, r == null ? 0 : r); }, 0);
+  const maxV = Math.max(120, Math.ceil(Math.max(maxRate, 1) / 20) * 20);
+  ctx.strokeStyle = "#21262d"; ctx.fillStyle = "#8b949e"; ctx.font = "10px sans-serif";
+  // 刻度: 0, 25%, 50%, 75%, 100%(上限); 100% 达成线固定
+  [0, 0.25, 0.5, 0.75, 1].forEach((f, i) => {
+    const v = Math.round(maxV * f);
+    const y = padT + ch - (ch * v / maxV);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - 8, y); ctx.stroke();
+    ctx.fillText(v + "%", 4, y + 3);
+  });
+  // 100% 达成线(绿色虚线)
+  const y100 = padT + ch - (ch * 100 / maxV);
+  ctx.strokeStyle = "rgba(63,185,80,.55)"; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(padL, y100); ctx.lineTo(W - 8, y100); ctx.stroke();
+  ctx.setLineDash([]);
+  const n = lines.length, slot = cw / n;
+  const bw = Math.min(28, slot * 0.4);
+  lines.forEach((l, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const rate = upphRateOf(l, now);
+    const hasHead = headOf(l.name) > 0;
+    if (rate == null || !hasHead) {
+      // 未填人数: 灰色矮柱 + "填人数"提示
+      ctx.fillStyle = "#3d444d";
+      ctx.fillRect(cx - bw / 2, padT + ch - 4, bw, 4);
+      ctx.fillStyle = "#8b949e"; ctx.font = "8px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(t("setPeople"), cx, padT + ch - 7);
+    } else {
+      const e = Math.max(0, Math.min(rate, maxV));
+      const h = ch * e / maxV;
+      ctx.fillStyle = rate >= 100 ? "#3fb950" : "#f85149";
+      ctx.fillRect(cx - bw / 2, padT + ch - h, bw, h);
+      ctx.fillStyle = rate >= 100 ? "#3fb950" : "#f85149";
+      ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(fmt1(rate) + "%", cx, padT + ch - h - 3);
+    }
+    ctx.fillStyle = "#8b949e"; ctx.font = "10px sans-serif";
+    ctx.fillText(shortName(l.name), cx, H - 10);
+  });
+  ctx.textAlign = "left";
+}
+
+// ---- 编辑人数弹窗 ----
+function openHeadModal() {
+  const grid = document.getElementById("headGrid");
+  grid.innerHTML = "";
+  const names = [];
+  state.lines.forEach(l => { if (!names.includes(l.name)) names.push(l.name); });
+  names.sort();
+  names.forEach(name => {
+    const item = document.createElement("div");
+    item.className = "head-item";
+    const lab = document.createElement("span");
+    lab.className = "hn"; lab.textContent = name;
+    // ★ 修复: 用 name 查找对应 line 对象, 不能再引用未定义的 l
+    const ln = state.lines.find(x => x.name === name) || {};
+    lab.title = t("headTitleFmt").replace("{name}", name).replace("{p}", fmt(upphRateOf(ln, new Date()) ?? 0));
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.min = "0"; inp.step = "1";
+    inp.value = headOf(name) || "";
+    inp.dataset.name = name;
+    item.appendChild(lab); item.appendChild(inp);
+    grid.appendChild(item);
+  });
+  document.getElementById("headModal").classList.add("open");
+}
+function saveHeads() {
+  document.querySelectorAll("#headGrid input").forEach(inp => {
+    setHead(inp.dataset.name, inp.value);
+  });
+  document.getElementById("headModal").classList.remove("open");
+  renderAll();
+}
+
+function renderAll() {
+  try {
+    const { main } = renderTable();
+    renderKPIs(main);
+    // ★ 2026-08-21 14:35 修复: 图表绘制包 try/catch — 数据异常时不至于中断整个刷新链
+    //   (旧: drawBar 内 clearRect 后抛异常 → canvas 空白 + 后续模块全不执行 = 图表"消失")
+    try { drawBar(main); } catch (e) { drawBarSafe(main); }
+    try { drawEff(main); } catch (e) { drawEffSafe(main); }
+    checkStalls();
+    // ★ 扩展模块: 问题点嵌入线体行下方 (每次数据刷新后重新嵌入)
+    try { if (typeof renderProblems === "function") renderProblems(); } catch (e) {}
+    // ★ 趋势图: 数据刷新时同步重绘 (2026-08-21 修复: 不点线体按钮不刷新) — 只重绘canvas, 不重建按钮DOM
+    try { if (typeof drawTrend === "function") drawTrend(); } catch (e) {}
+  } catch (e) {
+    console.warn("renderAll error:", e);
+  }
+}
+
+// ★ 2026-08-21 14:35 兜底: drawBar/drawEff 抛异常时画占位文本(避免空白"消失"), 不中断刷新链
+function drawBarSafe(main) {
+  try {
+    const cv = document.getElementById("chartBar");
+    if (!cv) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight || 230;
+    if (W < 20 || !H) return;
+    const pw = Math.round(W * dpr), ph = Math.round(H * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#8b949e"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(t("noData"), W / 2, H / 2);
+    ctx.textAlign = "left";
+  } catch (e) { /* ignore */ }
+}
+function drawEffSafe(main) {
+  try {
+    const cv = document.getElementById("chartEff");
+    if (!cv) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight || 180;
+    if (W < 20 || !H) return;
+    const pw = Math.round(W * dpr), ph = Math.round(H * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#8b949e"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(t("noData"), W / 2, H / 2);
+    ctx.textAlign = "left";
+  } catch (e) { /* ignore */ }
+}
+
+// ★ 标题: 日期 + 班次 + 时段(精确到秒) — 由每秒 timer 刷新, 不依赖 refresh 周期
+function updatePeriodLabel() {
+  const pl = document.getElementById("periodLabel");
+  if (!pl || pl.dataset.frozen === "1") return;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  pl.textContent = (now.getMonth() + 1) + "/" + now.getDate() + " " + shiftNameOfHour(8) + " 8:00 - " + hh + ":" + mm + ":" + ss;
+}
+
+async function refresh() {
+  const cs = document.getElementById("connStatus");
+  // ★ file:// 直接打开会无法 fetch 数据(浏览器拦截) — 给出明确指引而非模糊的"连接失败"
+  if (location.protocol === "file:") {
+    const pl = document.getElementById("periodLabel");
+    if (pl) { pl.dataset.frozen = "1"; pl.textContent = t("useHttp"); }
+    if (cs) { cs.className = "conn-status err"; cs.innerHTML = "<span class='dot'></span> " + t("fileErr"); }
+    return;
+  }
+  // ★ fetch 加 8s 超时(AbortController): 服务器卡住时不再无限等待
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    if (cs) { cs.className = "conn-status"; cs.innerHTML = "<span class='dot'></span> " + t("connConnecting"); }
+    const r = await fetch(DATA_URL + "?t=" + Date.now(), { signal: ctrl.signal });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    // ★ 2026-08-21 防御: 按规范化名(去空格/大小写)去重, 同 key 保留 pushed 最新 — 上游data.json偶发残留旧行(如 Final D 双空格旧快照)
+    const rawLines = d.lines || [];
+    const dedupMap = new Map();
+    rawLines.forEach(l => {
+      const k = normName(l.name);
+      const prev = dedupMap.get(k);
+      if (!prev || String(l.pushed || "") >= String(prev.pushed || "")) dedupMap.set(k, l);
+    });
+    state.lines = [...dedupMap.values()];
+    state.hourly = d.hourly || {};
+    state.updatedAt = d.updatedAt || null;
+    // ★ 连接状态: 按数据新鲜度判断 — updatedAt 距现在 ≤90s=已连接; ≤5min=延迟; >5min/无=断线
+    //   ⚠️ data.json 的 updatedAt 是字符串 "YYYY-MM-DD HH:MM:SS", 必须先转时间戳再相减
+    const st = d.source || "";
+    if (cs) {
+      const ts = (typeof state.updatedAt === "string")
+        ? new Date(state.updatedAt.replace(" ", "T") + "+07:00").getTime()
+        : (state.updatedAt || 0);
+      const age = ts ? (Date.now() - ts) : Infinity;
+      if (age <= 90000) { cs.className = "conn-status ok"; cs.innerHTML = "<span class='dot'></span> " + t("connOk"); }
+      else if (age <= 300000) { cs.className = "conn-status warn"; cs.innerHTML = "<span class='dot'></span> " + t("connDelay").replace("{s}", Math.round(age / 1000)); }
+      else { cs.className = "conn-status err"; cs.innerHTML = "<span class='dot'></span> " + (ts ? t("connDown").replace("{m}", Math.round(age / 60000)) : t("connNoData")); }
+    }
+    // ★ 标题: 日期 + 班次 + 时段(含秒) — 正常状态解冻并更新
+    const pl = document.getElementById("periodLabel");
+    if (pl) { pl.dataset.frozen = "0"; updatePeriodLabel(); }
+    trackStallStart();   // ★ v5.18 停滞时长追踪(需在 renderAll 前: renderTable 要用 stallLevelOf)
+    recordToday();       // ★ v5.18 历史统计: 记录今日快照(覆盖当天, 跨天保留)
+    renderAll();
+    // ★ 2026-08-24 修复: 首屏 renderTrend 早于 fetch 完成, state.lines 为空 → 今日实时数据未追加, 标题停在昨天
+    //   数据就绪后若趋势缺今天(工作日)记录则补绘一次; 已有今天则跳过, 避免每10秒重复重绘闪烁
+    try {
+      const today = todayKey();
+      const th = getTrendHist();
+      const tl = th.length ? th[th.length - 1] : null;
+      if (tl && tl.date !== today && !isWeekendDate(today) && state.lines && state.lines.length && typeof renderTrend === "function") {
+        renderTrend();
+      }
+    } catch (e) {}
+  } catch (e) {
+    const pl = document.getElementById("periodLabel");
+    if (pl) { pl.dataset.frozen = "1"; pl.textContent = t("connFailed"); }
+    if (cs) { cs.className = "conn-status err"; cs.innerHTML = "<span class='dot'></span> " + t("connFailedMsg").replace("{m}", (e && e.message ? e.message : String(e))); }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---- 历史统计面板渲染 ----
+function vsHtml(cur, prev) {
+  if (cur == null) return `<span class="vs-flat">-</span>`;
+  if (prev == null || prev <= 0) return `<span class="vs-flat">${fmt1(cur)}%</span>`;
+  const d = cur - prev;
+  const cls = Math.abs(d) < 0.5 ? "vs-flat" : (d > 0 ? "vs-up" : "vs-down");
+  const arrow = Math.abs(d) < 0.5 ? "→" : (d > 0 ? "↑" : "↓");
+  return `<span class="${cls}">${arrow} ${fmt1(Math.abs(d))}%</span>`;
+}
+// 聚合记录的得分(与 compScore 同口径: rate/upph 平均)
+function aggScoreOf(a) {
+  if (!a) return null;
+  const vals = [a.rate, a.upph].filter(v => v != null && !isNaN(v));
+  return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+}
+// ── 2026-08-20 16:20 历史日期回看: 拉取 history/YYYY-MM-DD.json, 展示当日全量看板 ──
+let histDateList = []; // ['2026-08-20', ...] 降序
+async function loadHistDateList() {
+  try {
+    const r = await fetch("history/index.json?t=" + Date.now());
+    if (!r.ok) throw new Error(r.status);
+    histDateList = await r.json();
+  } catch (e) {
+    histDateList = [];
+  }
+  const pick = document.getElementById("histDatePick");
+  if (pick && histDateList.length) {
+    pick.max = histDateList[0];
+    if (!pick.value) pick.value = histDateList[0];
+  }
+}
+async function loadHistDate(date) {
+  const status = document.getElementById("histReplayStatus");
+  const body = document.getElementById("histReplayBody");
+  if (!status || !body) return;
+  if (!date) { status.textContent = ""; body.style.display = "none"; return; }
+  status.textContent = "⏳ 加载中…";
+  try {
+    const r = await fetch("history/" + date + ".json?t=" + Date.now());
+    if (!r.ok) throw new Error(r.status);
+    const snap = await r.json();
+    // 加载近7天归档(含所选日)用于重复识别与趋势统计
+    let histDays = [];
+    try {
+      const ir = await fetch("history/index.json?t=" + Date.now());
+      if (ir.ok) {
+        const dates = await ir.json();
+        const idx = dates.indexOf(date);
+        const need = (idx >= 0 ? dates.slice(idx, idx + 7) : [date]);
+        histDays = (await Promise.all(need.map(async d => {
+          try {
+            const rr = await fetch("history/" + d + ".json?t=" + Date.now());
+            if (!rr.ok) return null;
+            const s = await rr.json();
+            return { date: d, problems: s.problems || [] };
+          } catch (e) { return null; }
+        }))).filter(Boolean);
+      }
+    } catch (e) {}
+    renderHistReplay(snap, histDays);
+    status.textContent = "✅ " + (snap.snapAt || date);
+    body.style.display = "";
+  } catch (e) {
+    status.textContent = "⚠️ 该日期无归档";
+    body.style.display = "none";
+  }
+}
+function histMainLines(snap) {
+  // 与主页趋势一致: 固定 MAIN_TREND_LINES 名单前7条(排除TREND_EXCLUDE), 不补位 (2026-08-21 13:02)
+  const lines = snap.lines || [];
+  const names = lines.map(l => l && l.name).filter(Boolean);
+  const avail = [];
+  MAIN_TREND_LINES.forEach(n => { if (names.indexOf(n) >= 0 && TREND_EXCLUDE.indexOf(n) < 0 && avail.indexOf(n) < 0 && avail.length < 7) avail.push(n); });
+  return avail;
+}
+// ── 问题点语义分类库（AI 语义识别，非死板字符串匹配）──
+// 每个类别用同义词族覆盖中/泰/英常见描述，如“S Coil断电停机”≈“设备故障”
+const PROB_CATS = [
+  { key: "equip", zh: "设备故障", en: "Equipment", color: "#f85149",
+    words: ["停机","故障","断电","报警","断裂","卡轨","传感器","不转","不热","损坏","烧","漏油","渗油","异响","抖动","脱落","维修","修复","停线","เครื่อง","เสีย","พัง","ไฟไม่เข้า","เบรก","ชำรุด","ซ่อม","alert","alarm"] },
+  { key: "changeover", zh: "换型/换线", en: "Changeover", color: "#d29922",
+    words: ["换线","换型","换模","换刀","换料","更换","线绳","拧紧头","盖帽","เชือก","เปลี่ยน"] },
+  { key: "material", zh: "来料/供应", en: "Supply", color: "#bc8cff",
+    words: ["来料","缺料","无库存","供应","物料","不连续","GAP","库存","积压","วัสดุ","ขาด","สต๊อก","ชิ้นส่วน"] },
+  { key: "quality", zh: "品质不良", en: "Quality", color: "#f778ba",
+    words: ["不良","滑牙","尺寸","不合格","变形","毛刺","歪","คุณภาพ","ไม่ได้ขนาด"] },
+  { key: "wait", zh: "等待/待机", en: "Waiting", color: "#58a6ff",
+    words: ["等待","待料","等料","รอ"] },
+  { key: "other", zh: "其他", en: "Other", color: "#8b949e", words: [] }
+];
+function classifyProblem(p) {
+  const t = String(p.problem_zh || "") + " " + String(p.problem_th || "") + " " + String(p.problem || "");
+  let best = "other", bestScore = 0;
+  PROB_CATS.forEach(c => {
+    if (c.key === "other") return;
+    let s = 0;
+    c.words.forEach(w => { if (t.indexOf(w) >= 0) s++; });
+    if (s > bestScore) { bestScore = s; best = c.key; }
+  });
+  return best;
+}
+function buildRepeatInfo(dayProbs, histDays) {
+  // histDays[0]=所选日(当天), 其余为更早归档; 同类+同车间 → 重复
+  const out = [];
+  (dayProbs || []).forEach(p => {
+    const cat = classifyProblem(p);
+    const ws = p.ws || "";
+    let prevDay = false, prevWeek = false;
+    for (let i = 1; i < (histDays || []).length; i++) {
+      const d = histDays[i];
+      const hit = (d.problems || []).some(q => classifyProblem(q) === cat && (q.ws || "") === ws);
+      if (hit) { if (i === 1) prevDay = true; prevWeek = true; }
+    }
+    out.push({ p: p, cat: cat, prevDay: prevDay, prevWeek: prevWeek });
+  });
+  return out;
+}
+function trendArrow(counts) {
+  const n = counts.length;
+  if (n < 2) return { dir: "flat", html: "➡️" };
+  const last = counts[n - 1], prev = counts[n - 2];
+  if (last > prev) return { dir: "up", html: "🔺 上升" };
+  if (last < prev) return { dir: "down", html: "🔻 下降" };
+  return { dir: "flat", html: "➡️ 持平" };
+}
+function buildTrendHtml(histDays, zh) {
+  if (!histDays || histDays.length < 2) return "<div style='color:var(--gray);font-size:11px;padding:10px 2px'>" + (zh ? "暂无跨日数据 — 明日起显示重复趋势" : "No trend yet — available from tomorrow") + "</div>";
+  const days = histDays.slice().reverse(); // 旧→新
+  const labels = days.map(d => String(d.date).slice(5));
+  const catCounts = {};
+  days.forEach(d => {
+    const cc = {};
+    (d.problems || []).forEach(p => { const c = classifyProblem(p); cc[c] = (cc[c] || 0) + 1; });
+    Object.keys(cc).forEach(c => { if (!catCounts[c]) catCounts[c] = []; catCounts[c].push(cc[c]); });
+  });
+  const keys = Object.keys(catCounts).filter(k => catCounts[k].some(v => v > 0));
+  if (!keys.length) return "<div style='color:var(--gray);font-size:11px;padding:10px 2px'>" + (zh ? "近7日无问题记录" : "No problems in last 7 days") + "</div>";
+  const maxV = Math.max.apply(null, keys.map(k => Math.max.apply(null, catCounts[k]))) || 1;
+  const rows = keys.map(k => {
+    const c = PROB_CATS.find(x => x.key === k) || PROB_CATS[PROB_CATS.length - 1];
+    const counts = catCounts[k];
+    const arrow = trendArrow(counts);
+    const bars = counts.map((v, i) => "<div style='width:14px;height:" + Math.max(2, Math.round(v / maxV * 46)) + "px;background:" + (v > 0 ? c.color : "#30363d") + ";border-radius:2px 2px 0 0' title='" + labels[i] + ": " + v + "'></div>").join("");
+    return "<div style='padding:6px 2px;border-bottom:1px solid var(--border)'>" +
+      "<div style='display:flex;align-items:center;gap:6px;font-size:10.5px'>" +
+        "<span style='color:" + c.color + ";font-weight:700'>" + (zh ? c.zh : c.en) + "</span>" +
+        "<span class='trend-arrow " + arrow.dir + "'>" + arrow.html + "</span>" +
+        "<span style='color:var(--gray);font-size:10px'>" + counts[counts.length - 1] + (zh ? "次/今日" : " today") + "</span>" +
+      "</div>" +
+      "<div style='display:flex;align-items:flex-end;gap:4px;height:50px;margin-top:4px'>" + bars + "</div>" +
+      "<div style='display:flex;gap:4px;font-size:8.5px;color:var(--gray)'>" + labels.map(l => "<span style='width:14px;text-align:center'>" + l + "</span>").join("") + "</div>" +
+    "</div>";
+  }).join("");
+  return rows;
+}
+function renderHistReplay(snap, histDays) {
+  const body = document.getElementById("histReplayBody");
+  const zh = (typeof lang !== "undefined") ? (lang === "zh") : true;
+  const lines = snap.lines || [];
+  const eff = snap.eff || {};
+  const problems = snap.problems || [];
+  const att = snap.attendance;
+  // 默认展示主要 8 条线体 (与主页一致)
+  const main8 = histMainLines(snap);
+  // ① 产量对比表 (只显示主要8条, 按实际产出降序)
+  const sorted = main8.map(n => lines.find(l => l.name === n)).filter(Boolean).sort((a, b) => (Number(b.actual) || 0) - (Number(a.actual) || 0));
+  const trs = sorted.map(l => {
+    const effV = (l.eff != null) ? l.eff : (eff[l.name] != null ? eff[l.name] : null);
+    const effTxt = effV != null ? Number(effV).toFixed(1) + "%" : "-";
+    const effCls = effV >= 100 ? "ok" : (effV < 90 ? "bad" : "");
+    return "<tr><td>" + (l.name || "-") + "</td><td style='text-align:center'>" + (l.plan || 0) + "</td><td style='text-align:center'>" + (l.actual || 0) + "</td><td style='text-align:center'>" + (l.cb != null ? l.cb : (Number(l.actual) - Number(l.plan))) + "</td><td style='text-align:center' class='" + effCls + "'>" + effTxt + "</td></tr>";
+  }).join("");
+  // ② 达成率分布 (主要8条, 按 eff 降序)
+  const effNames = main8.filter(n => eff[n] != null).sort((a, b) => (Number(eff[b]) || 0) - (Number(eff[a]) || 0));
+  const effBars = effNames.map(n => {
+    const v = Number(eff[n]) || 0;
+    const c = v >= 100 ? "#3fb950" : (v >= 90 ? "#d29922" : "#f85149");
+    return "<div style='display:flex;align-items:center;gap:6px;margin:2px 0'><span style='width:110px;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>" + n + "</span><div style='flex:1;height:10px;background:var(--panel);border-radius:5px;overflow:hidden'><div style='height:100%;width:" + Math.min(v, 150) + "%;background:" + c + "'></div></div><span style='width:44px;text-align:right;font-size:10px'>" + v.toFixed(0) + "%</span></div>";
+  }).join("");
+  // ③ 问题点 — AI语义分类 + 重复识别 (前日/前周) + 全部展示
+  const repeatInfo = buildRepeatInfo(problems, histDays);
+  const catOf = {};
+  PROB_CATS.forEach(c => catOf[c.key] = c);
+  const probList = repeatInfo.length ? repeatInfo.map((it, i) => {
+    const p = it.p;
+    const raw = String(p.problem_zh || p.problem_th || p.problem || "").replace(/\s+/g, " ").trim();
+    const c = catOf[it.cat] || catOf.other;
+    const badge = it.prevDay ? "<span class='rep-badge rep-day'>🔁 " + (zh ? "前日" : "yday") + "</span>" : (it.prevWeek ? "<span class='rep-badge rep-week'>🔁 " + (zh ? "前周" : "week") + "</span>" : "");
+    return "<div class='prob-row' style='padding:6px 2px;border-bottom:1px solid var(--border)'>" +
+      "<div style='display:flex;align-items:center;gap:5px;flex-wrap:wrap'><b style='font-size:10.5px'>" + (p.line || p.ws || "-") + "</b>" +
+      "<span style='color:var(--gray);font-size:9.5px'>" + (p.time || "") + "</span>" +
+      "<span style='color:var(--red);font-weight:700;font-size:10.5px'>" + (Number(p.impact) <= 0 ? "" : "+") + (p.impact || 0) + "台</span>" +
+      "<span class='cat-tag' style='font-size:9px;padding:1px 6px;border-radius:8px;background:" + c.color + "22;color:" + c.color + ";border:1px solid " + c.color + "55'>" + (zh ? c.zh : c.en) + "</span>" + badge + "</div>" +
+      "<div style='color:var(--gray);font-size:10px;margin-top:2px;line-height:1.45'>" + raw + "</div></div>";
+  }).join("") : "<div style='color:var(--gray);font-size:11px;padding:10px 2px'>" + (zh ? "当日无问题点" : "No problems") + "</div>";
+  // ④ 重复趋势 (近7天柱状图 + 升降箭头)
+  const trendHtml = buildTrendHtml(histDays, zh);
+  // ⑤ 出勤
+  const attHtml = (att && att.rows && att.rows.length) ? "<table class='hist-table' style='width:100%'><thead><tr><th>#</th><th>" + (zh ? "车间" : "WS") + "</th><th>" + (zh ? "应到" : "Staff") + "</th><th>" + (zh ? "实到" : "Att") + "</th><th>" + (zh ? "出勤率" : "Rate") + "</th></tr></thead><tbody>" + att.rows.map((r, i) => {
+    const rate = parseFloat(r.rate);
+    const rc = isNaN(rate) ? "" : (rate >= 90 ? "ok" : (rate < 80 ? "bad" : ""));
+    return "<tr class='" + (i % 2 ? "alt" : "") + "'><td style='text-align:center'>" + (i + 1) + "</td><td>" + (r.ws || "-") + "</td><td style='text-align:center'>" + (r.staff != null ? r.staff : "-") + "</td><td style='text-align:center'>" + (r.attend != null ? r.attend : "-") + "</td><td style='text-align:center' class='" + rc + "'>" + (isNaN(rate) ? "-" : rate.toFixed(1) + "%") + "</td></tr>";
+  }).join("") + "</tbody></table>" : "<div style='color:var(--gray);font-size:11px'>" + (zh ? "当日无出勤数据" : "No attendance") + "</div>";
+  body.innerHTML =
+    "<div style='display:grid;grid-template-columns:1.2fr 1fr;gap:10px'>" +
+      "<div style='background:var(--panel);border-radius:8px;padding:8px;min-width:0'><b style='font-size:11px'>" + (zh ? "🏭 产量对比" : "🏭 Output") + "</b>" +
+        "<div style='max-height:220px;overflow-y:auto;margin-top:4px'><table class='hist-table' style='width:100%;font-size:10.5px'><thead><tr><th>" + (zh ? "线体" : "Line") + "</th><th>" + (zh ? "计划" : "Plan") + "</th><th>" + (zh ? "实际" : "Actual") + "</th><th>" + (zh ? "差异" : "Gap") + "</th><th>" + (zh ? "达成率" : "Rate") + "</th></tr></thead><tbody>" + trs + "</tbody></table></div></div>" +
+      "<div style='background:var(--panel);border-radius:8px;padding:8px;min-width:0'><b style='font-size:11px'>" + (zh ? "📈 达成率 (主要8条)" : "📈 Rate (main 8)") + "</b><div style='margin-top:4px'>" + effBars + "</div></div>" +
+    "</div>" +
+    "<div style='display:grid;grid-template-columns:1.6fr 1fr;gap:10px;margin-top:10px'>" +
+      "<div style='background:var(--panel);border-radius:8px;padding:8px;min-width:0'><b style='font-size:11px'>" + (zh ? "🚨 未达成原因 (AI语义识别 · " + repeatInfo.length + "条)" : "🚨 Reasons (AI · " + repeatInfo.length + ")") + "</b>" +
+        "<div style='margin-top:4px;max-height:300px;overflow-y:auto'>" + probList + "</div></div>" +
+      "<div style='background:var(--panel);border-radius:8px;padding:8px;min-width:0'><b style='font-size:11px'>" + (zh ? "📊 问题重复趋势 (近7日)" : "📊 Repeat Trend (7d)") + "</b>" +
+        "<div style='margin-top:4px;max-height:300px;overflow-y:auto'>" + trendHtml + "</div></div>" +
+    "</div>" +
+    "<div style='background:var(--panel);border-radius:8px;padding:8px;margin-top:10px'><b style='font-size:11px'>" + (zh ? "👥 出勤表" : "👥 Attendance") + "</b><div style='margin-top:4px;max-height:180px;overflow-y:auto'>" + attHtml + "</div></div>";
+}
+function renderHist() {
+  const now = new Date();
+  // --- 今日 ---
+  const todayRec = histStore[todayKey()] || {};
+  const todayTbody = document.querySelector("#histTodayTbl tbody");
+  todayTbody.innerHTML = "";
+  const ranks = rankOfDay(todayRec);
+  // ★ 按排名先后顺序渲染(第1名在最上)
+  const todayNames = MAIN_LINES.slice().sort((a, b) => (ranks[normName(a)] || 999) - (ranks[normName(b)] || 999));
+  todayNames.forEach(name => {
+    const nk = normName(name);
+    const r = todayRec[nk];
+    if (!r) {
+      todayTbody.innerHTML += `<tr><td>${name.trim()}</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td></tr>`;
+      return;
+    }
+    const score = compScore(r);
+    const rank = ranks[nk] || "-";
+    const rankHtml = rank === 1 ? `<span class="champ">🥇 ${rank}</span>` : (rank === Object.keys(ranks).length ? `<span class="lastp">🔻 ${rank}</span>` : `${rank}`);
+    todayTbody.innerHTML +=
+      `<tr><td class="line-name">${name.trim()}</td>` +
+      `<td class="${effClass(r.rate)}">${r.rate == null ? '-' : fmt1(r.rate)}</td>` +
+      `<td>${r.uph == null ? '-' : fmt1(r.uph)}</td>` +
+      `<td>${r.upph == null ? '-' : fmt1(r.upph)}</td>` +
+      `<td class="${score != null && score >= 90 ? 'pos' : score != null ? '' : 'zero'}">${score == null ? '-' : fmt1(score)}</td>` +
+      `<td>${rankHtml}</td></tr>`;
+  });
+  // --- 本周 vs 上周 ---
+  const wk = weekAgg(0), pw = weekAgg(-1);
+  const wkTbody = document.querySelector("#histWeekTbl tbody");
+  wkTbody.innerHTML = "";
+  document.getElementById("histWeekTitle").textContent =
+    t("histWeekTitle") + ` (${fmt1(wkAvg(wk))}% vs ${fmt1(wkAvg(pw))}%)`;
+  // ★ 按本周综合得分降序(第1名在最上)
+  const wkNames = MAIN_LINES.slice().sort((a, b) => (aggScoreOf(wk[normName(b)]) ?? -1e9) - (aggScoreOf(wk[normName(a)]) ?? -1e9));
+  wkNames.forEach(name => {
+    const nk = normName(name);
+    const a = wk[nk], p = pw[nk];
+    if (!a) {
+      wkTbody.innerHTML += `<tr><td>${name.trim()}</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td></tr>`;
+      return;
+    }
+    wkTbody.innerHTML +=
+      `<tr><td class="line-name">${name.trim()}</td>` +
+      `<td class="${effClass(a.rate)}">${a.rate == null ? '-' : fmt1(a.rate)}</td>` +
+      `<td>${a.upph == null ? '-' : fmt1(a.upph)}</td>` +
+      `<td>${vsHtml(a.rate, p ? p.rate : null)}</td>` +
+      `<td class="champ">${a.first ? '🏆 ' + a.first : '-'}</td>` +
+      `<td class="lastp">${a.last ? '🔻 ' + a.last : '-'}</td></tr>`;
+  });
+  // --- 本月 vs 上月 ---
+  const mk = monthAgg(0), pm = monthAgg(-1);
+  const mkTbody = document.querySelector("#histMonthTbl tbody");
+  mkTbody.innerHTML = "";
+  document.getElementById("histMonthTitle").textContent =
+    t("histMonthTitle") + ` (${fmt1(mkAvg(mk))}% vs ${fmt1(mkAvg(pm))}%)`;
+  // ★ 按本月综合得分降序(第1名在最上)
+  const mkNames = MAIN_LINES.slice().sort((a, b) => (aggScoreOf(mk[normName(b)]) ?? -1e9) - (aggScoreOf(mk[normName(a)]) ?? -1e9));
+  mkNames.forEach(name => {
+    const nk = normName(name);
+    const a = mk[nk], p = pm[nk];
+    if (!a) {
+      mkTbody.innerHTML += `<tr><td>${name.trim()}</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td><td class="zero">-</td></tr>`;
+      return;
+    }
+    mkTbody.innerHTML +=
+      `<tr><td class="line-name">${name.trim()}</td>` +
+      `<td class="${effClass(a.rate)}">${a.rate == null ? '-' : fmt1(a.rate)}</td>` +
+      `<td>${a.upph == null ? '-' : fmt1(a.upph)}</td>` +
+      `<td>${vsHtml(a.rate, p ? p.rate : null)}</td>` +
+      `<td class="champ">${a.first ? '🏆 ' + a.first : '-'}</td>` +
+      `<td class="lastp">${a.last ? '🔻 ' + a.last : '-'}</td></tr>`;
+  });
+}
+// 聚合集平均达成率(表头摘要用)
+function wkAvg(agg) {
+  const vals = Object.values(agg).map(a => a.rate).filter(v => v != null);
+  return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+}
+function mkAvg(agg) { return wkAvg(agg); }
+
+// 模态开关
+(function initModal() {
+  const overlay = document.getElementById("otherModal");
+  document.getElementById("otherBtn").addEventListener("click", () => overlay.classList.add("open"));
+  document.getElementById("modalClose").addEventListener("click", () => overlay.classList.remove("open"));
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.classList.remove("open"); });
+  // 历史统计弹窗
+  const hmod = document.getElementById("histModal");
+  const hbtn = document.getElementById("histBtn");
+  if (hbtn) hbtn.addEventListener("click", () => { renderHist(); loadHistDateList(); hmod.classList.add("open"); });
+  document.getElementById("histClose").addEventListener("click", () => hmod.classList.remove("open"));
+  hmod.addEventListener("click", e => { if (e.target === hmod) hmod.classList.remove("open"); });
+  // 日期回看: 加载按钮 + 日期选择
+  const hlBtn = document.getElementById("histLoadBtn");
+  if (hlBtn) hlBtn.addEventListener("click", () => loadHistDate(document.getElementById("histDatePick").value));
+  const hp = document.getElementById("histDatePick");
+  if (hp) hp.addEventListener("change", () => loadHistDate(hp.value));
+  // 编辑人数弹窗
+  const hov = document.getElementById("headModal");
+  const hb = document.getElementById("headBtn");
+  if (hb) hb.addEventListener("click", openHeadModal);
+  document.getElementById("headClose").addEventListener("click", () => hov.classList.remove("open"));
+  document.getElementById("headSave").addEventListener("click", saveHeads);
+  hov.addEventListener("click", e => { if (e.target === hov) hov.classList.remove("open"); });
+  // ★ 小时产出分段开关: 初始化 checkbox 状态 + 绑定事件
+  const segT = document.getElementById("segToggle");
+  if (segT) {
+    segT.checked = segShow;
+    segT.addEventListener("change", toggleSeg);
+  }
+  setupSort();   // 列头点击排序
+})();
+
+initNotif();
+refresh();
+setInterval(refresh, 10000);
+// ★ 标题秒表: 每秒刷新日期/班次/时段(精确到秒)
+setInterval(updatePeriodLabel, 1000);
+</script>
+<script src="live-data.js?v=20260825a"></script>
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════
+   ★ 扩展模块 (2026-08-20 由小满添加)
+   - 画布: 响应式, 宽100%铺满, 高100vh, 加模块时原内容按比例缩小
+   - 模式: 日常(基础, 仅原看板) / 作战(详细, 含出勤+问题点模块)
+   - 模块折叠: 每模块右上角 — 按钮, 隐藏后其他模块自适应
+   - 问题点: 嵌入主表格每条线体行下方 (直观)
+   - 数据: window.__LIVE_DATA__ (live-data.js, 由 tools 脚本定时写入)
+   ═══════════════════════════════════════════════════════════ */
+const EXTRA_VIEW_KEY = "pdtiii_view_v1";
+const EXTRA_COLLAPSE_KEY = "pdtiii_collapse_v2";
+const EXTRA_MANUAL_ATT = "pdtiii_manual_att_v1"; // 出勤纯手动录入 (2026-08-21)
+let viewMode = "daily";
+let collapseMap = {};
+
+try { viewMode = localStorage.getItem(EXTRA_VIEW_KEY) || "daily"; } catch (e) {}
+try { collapseMap = JSON.parse(localStorage.getItem(EXTRA_COLLAPSE_KEY) || "{}") || {}; } catch (e) { collapseMap = {}; }
+// 清理折叠状态: v2 key 全新开始, 底部模块默认全部展开 (防止旧折叠状态造成空白)
+collapseMap = {};
+try { localStorage.setItem(EXTRA_COLLAPSE_KEY, "{}"); } catch (e) {}
+// ★ 2026-08-24: 出勤率小模块默认隐藏 (用户要求) — 加载即收起, 需要时点右下角恢复按钮展开
+const _attInit = document.getElementById("mod-attendance");
+if (_attInit) _attInit.style.display = "none";
+syncRestoreBtn();
+
+// ── 画布: 响应式布局, 仅控制扩展模块显示/隐藏 (宽度自动铺满, 高度自动撑开) ──
+// ── 画布等比缩放 (v3): 设计宽1920, 原看板设计高DESIGN_H, 作战模式加扩展模块高 ──
+// 缩放因子 s = min(视口宽/1920, 视口高/总设计高) → 日常铺满, 作战整体缩小, 永无滚动条
+const PDTIII_DESIGN_H = 1060; // 原看板设计内容高 (1080视口 - 上下padding 20)
+// ── 模式切换重排 (v6): 作战=紧凑重排(原看板压缩+底部三列模块), 无缩放无滚动 ──
+function applyScale() {
+  const battle = (viewMode === "battle");
+  // ① 原看板紧凑化: body 加 class 控制字号/间距 (纯CSS, 无transform)
+  document.body.classList.toggle("battle-mode", battle);
+  // ② 扩展模块区显隐
+  const extra = document.getElementById("extra-modules");
+  if (extra) extra.style.display = battle ? "flex" : "none";
+  const modeBtn = document.getElementById("modeBtn");
+  if (modeBtn) modeBtn.textContent = battle ? t("modeDaily") : t("modeDetail");
+  // ★ 2026-08-20 14:39 作战模式隐藏 UPPH 效率图, 小时产出图独占图表空间; 日常模式恢复
+  const effBox = document.querySelector(".chart-box.small");
+  if (effBox) effBox.style.display = battle ? "none" : "";
+  // ③ 触发原看板 resize 重绘 (canvas 随容器尺寸自适应) + 趋势图重绘
+  // ★ 2026-08-20 15:30 修Bug: display 切换后必须强制 reflow + rAF 延迟重绘
+  // ★ 2026-08-20 16:20 二次修: 单帧 rAF 时 flex/字体布局未必稳定 → 双 rAF 等两帧;
+  //   同时 setViewMode 不再重复调 applyScale (renderExtra 末尾已调), 消除双重重绘闪烁
+  void document.body.offsetHeight; // 强制 reflow, 让 display 变化后的新布局生效
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      syncHandlePos();
+      // ★ 2026-08-21 14:35 修复: 无参 drawBar() → main=undefined → lines.length 抛异常被吞,
+      //   模式切换/折叠时图表不重绘(可能空白)。必须传 splitLines().main
+      const _main = splitLines().main;
+      try { if (typeof drawBar === "function") drawBar(_main); } catch (e) { try { drawBarSafe(_main); } catch (e2) {} }
+      try { if (typeof drawEff === "function") drawEff(_main); } catch (e) { try { drawEffSafe(_main); } catch (e2) {} }
+      try { if (typeof drawTrend === "function") drawTrend(); } catch (e) {}
+    });
+  });
+}
+
+// ── 模式切换: 日常(基础) / 作战(详细) ──
+function setViewMode(mode) {
+  viewMode = mode;
+  try { localStorage.setItem(EXTRA_VIEW_KEY, mode); } catch (e) {}
+  const extra = document.getElementById("extra-modules");
+  if (extra) extra.style.display = (mode === "battle") ? "flex" : "none";
+  // 注意: 不再单独调 applyScale —— renderExtra() 内部已调用, 避免双重 rAF 重绘闪烁
+  renderExtra();
+}
+
+// ── 模块折叠: 隐藏后其他模块自适应 (支持 mod-attendance 出勤窄条 + mod-problems 汇总 + mod-trend 趋势) ──
+function toggleModule(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const hidden = el.style.display === "none";
+  el.style.display = hidden ? "" : "none";
+  collapseMap[id] = hidden ? false : true;
+  try { localStorage.setItem(EXTRA_COLLAPSE_KEY, JSON.stringify(collapseMap)); } catch (e) {}
+  syncRestoreBtn();
+  applyScale();
+}
+// 右下角浮动恢复按钮: 有模块被折叠才显示 (fixed 不占布局)
+function syncRestoreBtn() {
+  const b = document.getElementById("restoreModsBtn");
+  if (!b) return;
+  const anyCollapsed = ["mod-attendance", "mod-problems", "mod-trend"].some(id => {
+    const el = document.getElementById(id);
+    return el && el.style.display === "none";
+  });
+  b.style.display = anyCollapsed ? "" : "none";
+}
+function resetModuleLayout() {
+  collapseMap = {};
+  try { localStorage.setItem(EXTRA_COLLAPSE_KEY, "{}"); } catch (e) {}
+  ["mod-attendance", "mod-problems", "mod-trend"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = "";
+  });
+  syncRestoreBtn();
+  applyScale();
+}
+
+// ── 数据读取: live-data.js (window.__LIVE_DATA__) + 手动覆盖 ──
+// ═══ 出勤率跨端同步 (2026-08-21): 本地 localStorage + Firebase 云端双写 ═══
+// 保存: 写 localStorage 后 PUT 到 Firebase (pdtiii_att 节点)
+// 读取: localStorage 优先即时渲染, 同时异步拉 Firebase, 按 savedAt 取较新, 更新本地后重渲染
+const ATT_FB_URL = "https://dm111-e8a7d-default-rtdb.firebaseio.com/pdtiii_att.json";
+function attReadLocal() {
+  try { return JSON.parse(localStorage.getItem(EXTRA_MANUAL_ATT) || "null"); } catch (e) { return null; }
+}
+function attWriteLocal(ma) {
+  try { localStorage.setItem(EXTRA_MANUAL_ATT, JSON.stringify(ma)); } catch (e) {}
+}
+function attReadRemote() {
+  return fetch(ATT_FB_URL + "?t=" + Date.now(), { signal: AbortSignal.timeout(8000) })
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .catch(() => null);
+}
+function attWriteRemote(ma) {
+  return fetch(ATT_FB_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ma),
+    signal: AbortSignal.timeout(8000)
+  }).catch(() => null);
+}
+function attSyncFromRemote() {
+  attReadRemote().then(remote => {
+    if (!remote || !remote.rows || !remote.rows.length) return;
+    const local = attReadLocal();
+    const rT = Number(remote.savedAt || 0);
+    const lT = Number((local && local.savedAt) || 0);
+    if (rT > lT) { attWriteLocal(remote); renderAttendance(); }
+  });
+}
+function getExtraData() {
+  const ld = (typeof window.__LIVE_DATA__ !== "undefined" && window.__LIVE_DATA__) || { attendance: null, problems: [] };
+  const probs = (ld.problems || []).slice();
+  // 2026-08-21 13:30: AI 语义聚合的主要问题点 TOP3 (同一问题跨时段合并累计影响, 每小时自动更新)
+  //    优先展示; 无则退回全量 problems 旧逻辑
+  const top = (ld.problems_top || []).slice();
+  // 2026-08-21: 问题点手动录入功能已取消 (数据全部来自每小时自动同步)
+  // 出勤率 = 纯手动录入 (2026-08-21 起不再读 live attendance), localStorage + Firebase 跨端同步
+  try {
+    const ma = attReadLocal();
+    if (ma && ma.rows && ma.rows.length) return { attendance: ma, problems: probs, top: top, manual: true };
+  } catch (e) {}
+  return { attendance: null, problems: probs, top: top, manual: false };
+}
+
+function renderExtra() {
+  // 数据就绪守卫: live-data.js 若尚未加载完成, 延迟重试 (修复首屏空白)
+  if (typeof window.__LIVE_DATA__ === "undefined" || typeof window.__HISTORY__ === "undefined") {
+    setTimeout(renderExtra, 300);
+    return;
+  }
+  renderAttendance();
+  renderProblems();
+  renderTrend();
+  applyScale();
+}
+
+// ═══════════════════ 趋势分析模块: 达成率趋势折线图 ═══════════════════
+// 历史数据来源: 每日 17:00 快照 (cron 调 save_daily_history.py 写 live-data.js -> __HISTORY__), localStorage 兜底
+const TREND_HIST_KEY = "pdtiii_trend_hist_v2";
+const TREND_SEL_KEY = "pdtiii_trend_sel_v2";
+let trendSel = {}; // {线体名: true/false}
+try { trendSel = JSON.parse(localStorage.getItem(TREND_SEL_KEY) || "{}") || {}; } catch (e) { trendSel = {}; }
+// 线体颜色表
+const TREND_COLORS = ["#58a6ff", "#f78166", "#3fb950", "#d29922", "#bc8cff", "#f778ba", "#39c5cf", "#8b949e"];
+// 周末判断: 系统运作时间 = 周一至周五, 趋势/历史一律不含周末 (2026-08-24 用户要求)
+function isWeekendDate(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
+  if (!m) return false;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const wd = d.getDay();
+  return wd === 0 || wd === 6; // 周日=0, 周六=6
+}
+// 读取历史: 优先 __HISTORY__ (17:00 cron 写入), 否则 localStorage; 并合并当天实时达成率 (2026-08-21 用户要求: 当天数据也要在趋势图里)
+// 2026-08-24 用户要求: 过滤掉周末(周六/周日)记录, 趋势只显示周一至周五
+function getTrendHist() {
+  let h = (typeof window.__HISTORY__ !== "undefined" && Array.isArray(window.__HISTORY__)) ? window.__HISTORY__ : null;
+  if (!h || !h.length) {
+    try { const l = JSON.parse(localStorage.getItem(TREND_HIST_KEY) || "[]"); if (Array.isArray(l) && l.length) h = l; } catch (e) {}
+  }
+  h = (h || []).slice().filter(d => !isWeekendDate(d && d.date));
+  // ★ 当天实时达成率合并: 若最后一天不是今天(且今天是工作日), 则用 state.lines 的 eff 追加今日记录
+  try {
+    const today = todayKey();
+    const last = h.length ? h[h.length - 1] : null;
+    if (!isWeekendDate(today) && (!last || last.date !== today) && state && state.lines && state.lines.length) {
+      const rec = { date: today, lines: {} };
+      state.lines.forEach(l => {
+        if (l && l.name && l.eff != null && !isNaN(l.eff)) rec.lines[l.name] = Number(l.eff);
+      });
+      if (Object.keys(rec.lines).length) h.push(rec);
+    }
+  } catch (e) {}
+  return h;
+}
+// 线体名 → 首字母简称 (2026-08-20 15:30: 用户要求只写首字母/系列字母, 小图标一排, 空间留给图表)
+// Final A line→A, Final B Line→B, Final C line→C, Final D line→D, Motor H-Series→H, Motor S-Series→S, Motor F-Series→F, Motor WL→WL
+function tinyName(n) {
+  const s = String(n || "").replace(/ line$/i, "").replace(/-Series$/i, "").trim();
+  const low = String(n || "").toLowerCase();
+  if (low.indexOf("final a") >= 0) return "A";
+  if (low.indexOf("final b") >= 0) return "B";
+  if (low.indexOf("final c") >= 0) return "C";
+  if (low.indexOf("final d") >= 0) return "D";
+  const m = low.match(/(motor|cylin|pist|press|frame|rod|weld|c\-|c |welding)/);
+  if (m) {
+    if (low.indexOf("motor h") >= 0) return "H";
+    if (low.indexOf("motor s") >= 0) return "S";
+    if (low.indexOf("motor f") >= 0) return "F";
+    if (low.indexOf("motor wl") >= 0) return "WL";
+    if (low.indexOf("motor") >= 0) return "M";
+    if (low.indexOf("cylinder honing") >= 0) return "CH";
+    if (low.indexOf("piston honing") >= 0) return "PH";
+    if (low.indexOf("press c") >= 0) return "PC";
+    if (low.indexOf("frame honing") >= 0) return "FH";
+    if (low.indexOf("rod pispin") >= 0) return "RP";
+    if (low.indexOf("welding") >= 0) return "W";
+    if (low.indexOf("c-shaft body") >= 0) return "CB";
+    if (low.indexOf("c-shft pin") >= 0 || low.indexOf("c shaft pin") >= 0) return "CP";
+  }
+  return s.slice(0, 2).toUpperCase();
+}
+// 渲染: 线体选择条 + 折线图 (默认显示最新一天达成率最高的前8条线, 可点选切换/多选)
+// 主要线体优先名单 (2026-08-20 16:20 用户要求: 趋势默认显示主要的8条线体)
+// 顺序=优先级, 数据中存在则入选; 不足8条时按最新达成率降序补齐
+const MAIN_TREND_LINES = [
+  "Final A line", "Final B Line", "Final C line", "Final D line",
+  "Motor H-Series", "Motor S-Series", "Motor F-Series",
+  "Rotor A line", "Rotor B Line", "Rotor C  line", "Rotor D  Line",
+  "Welding A line", "Welding B line", "Welding C line", "Welding D line",
+  "Cylinder Honing", "Piston honing FL", "Frame Honing FL", "Press C-Shaft",
+  "Inspection A", "Inspection B", "Inspection C", "Inspection D",
+  "Water Line", "Piston Grinding", "True B"
+];
+// 2026-08-21 12:34 用户要求: 这些线体不显示在趋势图 (不参与主名单也不参与补位)
+const TREND_EXCLUDE = ["Rotor A line"];
+function renderTrend() {
+  const wrap = document.getElementById("trend-lines");
+  const hist = getTrendHist();
+  const lineNames = [];
+  hist.forEach(d => { (Object.keys(d.lines || {})).forEach(n => { if (lineNames.indexOf(n) < 0) lineNames.push(n); }); });
+  // ★ 标题: 动态时间范围 (2026-08-21 用户要求: 写清楚哪天到哪天的趋势, 每天自动更新)
+  const ttl = document.getElementById("trendTitleText");
+  if (ttl) {
+    const zh = (typeof lang !== "undefined") ? (lang === "zh") : true;
+    if (hist.length) {
+      const d0 = String(hist[0].date || "").slice(5);
+      const d1 = String(hist[hist.length - 1].date || "").slice(5);
+      ttl.textContent = (zh ? "📈 达成率趋势" : "📈 Rate Trend") + " · " + d0 + " → " + d1 + (zh ? " 每日更新" : " · daily");
+    } else {
+      ttl.textContent = zh ? "📈 达成率趋势分析" : "📈 Rate Trend";
+    }
+  }
+  // 默认展示: 按 MAIN_TREND_LINES 名单顺序筛(排除TREND_EXCLUDE), 2026-08-21 13:02 用户要求: 不补位, 固定就显示名单里前7条(现为 Final A/B/C/D + Motor H/S/F)
+  const last = hist[hist.length - 1] || {};
+  const lineNamesAll = Object.keys(last.lines || {});
+  const avail = [];
+  MAIN_TREND_LINES.forEach(n => { if (lineNamesAll.indexOf(n) >= 0 && TREND_EXCLUDE.indexOf(n) < 0 && avail.indexOf(n) < 0 && avail.length < 7) avail.push(n); });
+  // 2026-08-21 12:01 用户要求: 点击卡片=展开放大(不再删除) → 趋势选择只增不减, 始终补齐主要8条
+  // 清理旧状态: 删除之前点击遗留的隐藏选择, 保证主要线体全部恢复显示
+  try { localStorage.removeItem(TREND_SEL_KEY); } catch (e) {}
+  trendSel = {};
+  avail.forEach(n => { trendSel[n] = true; });
+  try { localStorage.setItem(TREND_SEL_KEY, JSON.stringify(trendSel)); } catch (e) {}
+  // 顶部按钮行已移除 (2026-08-21): 卡片自身可点击切换, 省出高度给卡片放大
+  if (wrap) wrap.innerHTML = "";
+  drawTrend();
+}
+function toggleTrendLine(el) {
+  const n = el.getAttribute("data-line");
+  if (!n) return;
+  // 2026-08-21 12:01 用户要求: 点击卡片=展开放大查看, 不再是删除/隐藏
+  openLineDetail(n);
+}
+// ★ 2026-08-21 12:01: 点击趋势卡片 → 弹窗放大显示该线体大图 (复用 detailModal)
+function openLineDetail(n) {
+  detailLineName = n;
+  document.getElementById("detailModal").classList.add("open");
+  renderDetail("line");
+}
+function closeLineDetail() {
+  detailLineName = null;
+  closeDetail();
+}
+// 折线图绘制: 改为 sparkline 卡片网格 (2026-08-21 用户要求: 线太多靠颜色区分吃力 → 每条线独立小卡, 标题+最新值+升降箭头+迷你折线, 趋势一目了然)
+function drawTrend() {
+  const wrap = document.getElementById("chartTrend");
+  const hist = getTrendHist();
+  if (!wrap) return;
+  const days = hist.slice(-14); // 近14天足够看趋势
+  if (!days.length) {
+    wrap.innerHTML = "<div style='color:var(--gray);font-size:10px;padding:8px 2px'>暂无历史数据</div>";
+    return;
+  }
+  const names = Object.keys(trendSel).filter(n => trendSel[n]);
+  // 按最新达成率升序排列(最差的排前面), 名字作为唯一标识, 不再靠颜色区分
+  const last = days[days.length - 1];
+  const order = names.slice().sort((a, b) => (Number(last.lines && last.lines[a]) || 0) - (Number(last.lines && last.lines[b]) || 0));
+  // 全局 Y 轴统一 60%~120%, 保证跨线体可比, 100% 目标线固定
+  const yMin = 60, yMax = 120;
+  const cards = order.map((n, li) => {
+    const color = TREND_COLORS[li % TREND_COLORS.length];
+    const vals = days.map(d => { const v = Number(d.lines && d.lines[n]); return isNaN(v) ? null : v; });
+    const lastV = vals[vals.length - 1];
+    const prevV = vals[vals.length - 2];
+    let arrow = "", arrowCls = "";
+    if (lastV != null && prevV != null) {
+      if (lastV > prevV + 0.4) { arrow = "▲ +" + (lastV - prevV).toFixed(1); arrowCls = "sp-up"; }
+      else if (lastV < prevV - 0.4) { arrow = "▼ " + (lastV - prevV).toFixed(1); arrowCls = "sp-down"; }
+      else { arrow = "— 持平"; arrowCls = "sp-flat"; }
+    }
+    // 迷你折线 SVG: 60~120 区间映射 (2026-08-21 放大: 视口加高让趋势更清晰)
+    const W = 100, H = 44, pad = 3;
+    const pts = vals.map((v, ix) => {
+      if (v == null) return null;
+      const x = pad + (ix / Math.max(days.length - 1, 1)) * (W - pad * 2);
+      const y = H - pad - ((Math.min(Math.max(v, yMin), yMax) - yMin) / (yMax - yMin)) * (H - pad * 2);
+      return x.toFixed(1) + "," + y.toFixed(1);
+    }).filter(Boolean);
+    const poly = pts.join(" ");
+    const y100 = H - pad - ((100 - yMin) / (yMax - yMin)) * (H - pad * 2);
+    // ★ 2026-08-21 11:53 用户要求: 图表加数据标签 — 用HTML覆盖层(百分比定位) + text-shadow halo, 避免SVG拉伸变形/压线
+    const labels = vals.map((v, ix) => {
+      if (v == null) return "";
+      const x = pad + (ix / Math.max(days.length - 1, 1)) * (W - pad * 2);
+      const y = H - pad - ((Math.min(Math.max(v, yMin), yMax) - yMin) / (yMax - yMin)) * (H - pad * 2);
+      const pctX = ((x / W) * 100).toFixed(1);
+      const pctY = ((y / H) * 100).toFixed(1);
+      const below = y < 9; // 点靠近顶部时标签放下方, 避免溢出
+      return "<span class='spark-label' style='left:" + pctX + "%;top:" + pctY + "%;transform:translate(-50%," + (below ? "40%" : "-130%") + ");color:" + color + "'>" + v.toFixed(0) + "%</span>";
+    }).join("");
+    const lastCls = lastV >= 100 ? "sp-ok" : (lastV >= 90 ? "sp-warn" : "sp-bad");
+    return "<div class='spark-card' title='" + n + "' onclick='toggleTrendLine(this)' data-line='" + n.replace(/'/g, "") + "' style='cursor:pointer'>" +
+      "<div class='spark-head'><span class='spark-name' style='color:" + color + "'>" + tinyName(n) + "</span><span class='spark-full' title='" + n + "'>" + n + "</span>" +
+      "<span class='spark-val " + lastCls + "'>" + (lastV != null ? lastV.toFixed(0) + "%" : "-") + "</span>" +
+      "<span class='spark-arrow " + arrowCls + "'>" + arrow + "</span></div>" +
+      "<div class='spark-svg-wrap'>" +
+      "<svg viewBox='0 0 " + W + " " + H + "' preserveAspectRatio='none' class='spark-svg'>" +
+        "<line x1='0' y1='" + y100.toFixed(1) + "' x2='" + W + "' y2='" + y100.toFixed(1) + "' class='spark-target'/>" +
+        (poly ? "<polyline points='" + poly + "' fill='none' stroke='" + color + "' stroke-width='2.2' stroke-linejoin='round' stroke-linecap='round'/>" : "") +
+        (lastV != null ? "<circle cx='" + pts[pts.length - 1].split(",")[0] + "' cy='" + pts[pts.length - 1].split(",")[1] + "' r='2.6' fill='" + color + "'/>" : "") +
+      "</svg>" + labels + "</div></div>";
+  }).join("");
+  wrap.innerHTML = cards;
+}
+// ★ 每日17:00历史快照 (cron 调用): 把当天各线达成率追加到 __HISTORY__ + localStorage
+function saveDailySnapshot() {
+  try {
+    const effMap = {};
+    if (typeof main !== "undefined" && Array.isArray(main)) {
+      main.forEach(l => { if (l && l.name && l.eff != null) effMap[l.name] = Math.round(Number(l.eff) * 10) / 10; });
+    }
+    if (!Object.keys(effMap).length) { console.warn("[trend] 无达成率数据, 跳过快照"); return; }
+    const today = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    const date = today.getFullYear() + "-" + pad(today.getMonth() + 1) + "-" + pad(today.getDate());
+    const hist = getTrendHist().slice();
+    const idx = hist.findIndex(d => d.date === date);
+    const rec = { date: date, lines: effMap };
+    if (idx >= 0) hist[idx] = rec; else hist.push(rec);
+    hist.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    try { localStorage.setItem(TREND_HIST_KEY, JSON.stringify(hist.slice(-120))); } catch (e) {}
+    console.log("[trend] 快照已保存 " + date + " " + Object.keys(effMap).length + " 线体");
+    if (typeof window.__HISTORY__ !== "undefined") window.__HISTORY__ = hist;
+    renderTrend();
+  } catch (e) { console.error("[trend] saveDailySnapshot", e); }
+}
+
+// ★ 嵌入问题点子行 (由 renderAll 调用, 需在表格渲染后): 仅战斗模式
+function embedLineProblems() {
+  renderProblems();
+}
+
+// ── 出勤率渲染 (底部最左窄条) ──
+function rateCls(r) {
+  if (r === null || r === undefined || isNaN(r)) return "";
+  if (r >= 95) return "rate-ok";
+  if (r >= 85) return "rate-warn";
+  return "rate-bad";
+}
+function renderAttendance() {
+  const body = document.getElementById("att-body");
+  const src = document.getElementById("att-src");
+  if (!body) return;
+  const { attendance } = getExtraData();
+  if (!attendance || !attendance.rows || !attendance.rows.length) {
+    body.innerHTML = "<div style='color:var(--gray);font-size:10px;padding:6px 2px'>暂无数据 — 点「✏️ 录入」填写</div>";
+    if (src) src.textContent = "SRC: 无数据";
+    return;
+  }
+  const rows = attendance.rows;
+  const dateTxt = attendance.date || "";
+  if (src) src.textContent = dateTxt ? dateTxt + " · 已录入" : "SRC: 已录入";
+  body.innerHTML = rows.map(r => {
+    const rate = parseFloat(r.rate);
+    const rc = rateCls(rate);
+    return "<div class='att-row'><span class='att-ws'>" + (r.ws || "-") + "</span><span class='att-rate " + rc + "'>" + (isNaN(rate) ? "-" : rate.toFixed(0) + "%") + "</span></div>";
+  }).join("");
+}
+
+// ── 问题点渲染 ──
+function fmtTime(t) {
+  if (!t) return "";
+  const s = String(t);
+  if (s.length === 1) return s + ":00";
+  if (s.length === 2) return s + ":00";
+  return s;
+}
+
+// ★ 问题点 line → 看板线体名 映射 (Excel车间·系列 → 看板主表格线体)
+// 优先从问题文本提取线体名 (如 "FINAL C line" / "S-series line"), 再用车间·系列映射表兜底
+function mapProbLineToBoard(line, problemTxt) {
+  const full = String(line || "") + " " + String(problemTxt || "");
+  const low = full.replace(/\s+/g, " ").toLowerCase();
+  // ① 文本直接命中看板线体名 (最可靠: Excel文本里有明确的线名)
+  const order = ["final a", "final b", "final c", "final d", "motor h", "motor s", "motor f", "motor wl"];
+  for (const o of order) {
+    if (low.indexOf(o) >= 0) {
+      const map = { "final a": "Final A line", "final b": "Final B Line", "final c": "Final C line", "final d": "Final D line",
+        "motor h": "Motor H-Series", "motor s": "Motor S-Series", "motor f": "Motor F-Series", "motor wl": "Motor WL" };
+      return map[o];
+    }
+  }
+  // ② 车间·系列映射表兜底 (文本没写线名时)
+  const s = String(line || "").replace(/\s+/g, "").toLowerCase();
+  const map2 = {
+    "rpo1·s系列": "Motor S-Series", "rpo1·s": "Motor S-Series", "rpo1·h系列": "Motor H-Series", "rpo1·h": "Motor H-Series",
+    "rpo1·f系列": "Motor F-Series", "rpo1·f": "Motor F-Series", "rpo1·wl": "Motor WL", "rpo1·wl系列": "Motor WL",
+    "pro2·a": "Final A line", "pro2·b": "Final B Line", "pro2·c": "Final C line", "pro2·d": "Final D line"
+  };
+  if (map2[s]) return map2[s];
+  return null;
+}
+
+// ★ 渲染问题点: ① 嵌入主表格每条线体行下方 ② 汇总表(extra模块内)
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function renderProblems() {
+  // ── ① 嵌入主表格: 已按用户要求移除 (2026-08-20 14:0x) ──
+  const ed = getExtraData();
+  const problems = ed.problems;
+  // 2026-08-21 13:30: AI 语义聚合主要问题点优先 (同一问题跨时段合并累计影响, 每小时更新)
+  const top3 = ed.top || [];
+  // ── ② 实时 Top3 汇总 (extra模块内): 2026-08-21 13:30 用户要求 — AI语义聚合主要问题点, 不是某一时段的最大值
+  const body = document.getElementById("prob-body");
+  const src = document.getElementById("prob-src");
+  if (body) {
+    if (top3.length) {
+      // ★ AI 分组结果渲染 (2026-08-21 13:45 重构): 线体徽标 + 完整问题名(自动换行) + 累计影响 + 跨时段次数 + 涉及时段
+      const totalImpact = problems.reduce((s, p) => s + (Number(p.impact) || 0), 0);
+      const times = problems.map(p => Number(p.time)).filter(t => !isNaN(t)).sort((a, b) => a - b);
+      const period = times.length ? (fmtTime(times[0]) + " ~ " + fmtTime(times[times.length - 1])) : "全天";
+      const zh = (typeof lang !== "undefined") ? (lang === "zh") : true;
+      const absImp = Math.abs(totalImpact);
+      const summary = "<div class='prob-summary'>📋 <b>" + period + "</b> · 共" + problems.length + "条 · 累计影响 <b style='color:var(--red)'>-" + absImp + "台</b></div>";
+      if (src) src.textContent = "SRC: AI分组 " + top3.length + " / " + problems.length + "条";
+      const rows = top3.map((item, bi) => {
+        // 2026-08-24: 跨线体合并时显示全部涉及线体(join), 不再只显示 lines[0] 造成内容错位
+        const bname = (item.lines && item.lines.length) ? String(item.lines.join("、")) : "-";
+        // 2026-08-21 13:57: 英文界面显示泰语原文, 中文界面显示中文翻译 (保持AI分组方法不变)
+        const dispName = (!zh && item.name_th) ? item.name_th : (item.name || "");
+        const imp = (item.total_impact != null) ? " <b class='prob-imp'>" + (Number(item.total_impact) <= 0 ? "" : "+") + Number(item.total_impact) + "台</b>" : "";
+        const cnt = item.count > 1 ? " <span class='prob-cnt'>×" + item.count + "时段</span>" : "";
+        const timesStr = (item.times && item.times.length) ? "<div class='prob-times'>" + item.times.map(escapeHtml).join(" · ") + "</div>" : "";
+        const rankCls = bi === 0 ? "r1" : (bi === 1 ? "r2" : "r3");
+        const itemHtml = "<div class='prob-top'><span class='prob-rank " + rankCls + "'>" + (bi + 1) + ".</span>" +
+          "<div class='prob-main'><div class='prob-txt'>" + escapeHtml(dispName) + cnt + imp + "</div>" + timesStr + "</div></div>";
+        return "<tr><td class='prob-line'>" + escapeHtml(bname) + "</td><td class='prob-cell'>" + itemHtml + "</td></tr>";
+      }).join("");
+      body.innerHTML = summary + "<table class='mod-table'><thead><tr><th style='width:100px'>" + (zh ? "线体" : "Line") + "</th><th>" + (zh ? "主要问题点" : "Key issues") + "</th></tr></thead><tbody>" + rows + "</tbody></table>";
+      fitProbFont(body);
+      return;
+    }
+    if (!problems.length) {
+      body.innerHTML = "<div style='color:var(--gray);padding:6px 2px'>" + t("probNoData") + "</div>";
+      if (src) src.textContent = "SRC: 无数据";
+    } else {
+      const sorted = problems.slice().sort((a, b) => Math.abs(Number(b.impact) || 0) - Math.abs(Number(a.impact) || 0));
+      const perLine = sorted.slice(0, 3).map(p => ({
+        bname: mapProbLineToBoard(p.line, p.problem) || p.line || p.ws || "其他",
+        best: p, n: 1,
+        lineImp: Number(p.impact) || 0
+      }));
+      const totalImpact = problems.reduce((s, p) => s + (Number(p.impact) || 0), 0);
+      const topLine = perLine[0] ? perLine[0].bname : "-";
+      const absTop = perLine[0] ? Math.abs(Number(perLine[0].best.impact) || 0) : 0;
+      // 总结行
+      const times = problems.map(p => Number(p.time)).filter(t => !isNaN(t)).sort((a, b) => a - b);
+      const period = times.length ? (fmtTime(times[0]) + " ~ " + fmtTime(times[times.length - 1])) : "全天";
+      const absImp = Math.abs(totalImpact);
+      const summary = "<div class='prob-summary'>📋 <b>" + period + "</b> · 共" + problems.length + "条问题 · 累计影响 <b style='color:var(--red)'>-" + absImp + "台</b> · 影响最大线体 <b style='color:var(--orange)'>" + topLine + "</b>(-"+ absTop + "台)</div>";
+      if (src) src.textContent = t("probSrcFmt").replace("{n}", problems.length).replace("{m}", perLine.length);
+      const zh = (typeof lang !== "undefined") ? (lang === "zh") : true;
+      const rows = perLine.map((item, bi) => {
+        const bname = item.bname, p = item.best;
+        const t = fmtTime(p.time);
+        let raw = String(p.problem_zh || p.problem_th || p.problem || "").replace(/\n/g, " ");
+        if (!zh && p.problem_th) raw = String(p.problem_th).replace(/\n/g, " ");
+        raw = raw.replace(/\s+/g, " ").trim();
+        const imp = (p.impact != null && p.impact !== "") ? " <span style='color:var(--red);font-weight:700'>" + (Number(p.impact) <= 0 ? "" : "+") + Number(p.impact) + "台</span>" : "";
+        const rankCls = bi === 0 ? "r1" : (bi === 1 ? "r2" : (bi === 2 ? "r3" : ""));
+        const itemHtml = "<div class='prob-top'><span class='prob-rank " + rankCls + "'>" + (bi + 1) + ".</span>" +
+          (t ? "<span class='prob-time'>" + t + "</span> " : "") +
+          "<span class='prob-txt'>" + raw.replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</span>" + imp + "</div>";
+        return "<tr><td class='prob-line'>" + bname + "</td><td class='prob-cell'>" + itemHtml + "</td></tr>";
+      }).join("");
+      body.innerHTML = summary + "<table class='mod-table'><thead><tr><th style='width:110px'>" + t("probLineTh") + "</th><th>" + (zh ? "主要问题点" : "Main problems") + "</th></tr></thead><tbody>" + rows + "</tbody></table>";
+      fitProbFont();
+    }
+  }
+}
+
+// ── 2026-08-20 14:05 未达成原因模块字体自适应: 内容超出时逐级缩小字号, 绝不出现滚动条 ──
+function fitProbFont() {
+  const box = document.getElementById("prob-body");
+  if (!box) return;
+  // 涉及字号统一 !important 规则, 需直接改子元素 inline style 才能覆盖
+  const targets = box.querySelectorAll(".prob-summary, .prob-top, .prob-txt, .prob-time, .prob-rank, .prob-lineimp, .mod-table, .mod-table th, .mod-table td");
+  const applySize = s => { targets.forEach(el => el.style.setProperty("font-size", s + "px", "important")); };
+  // 容器自身也设置, 确保 scrollHeight 反映真实字号
+  const setBox = s => { box.style.fontSize = s + "px"; };
+  // 从 10px 开始, 若内容高度仍超出容器则逐步缩小到最小 7px (严格容差)
+  let size = 10;
+  applySize(size); setBox(size);
+  for (let i = 0; i < 8; i++) {
+    void box.offsetHeight; // 强制 reflow, 否则 scrollHeight 返回旧缓存值导致提前 break
+    if (box.scrollHeight <= box.clientHeight) break;
+    size = Math.max(7, size - 0.5);
+    applySize(size); setBox(size);
+  }
+  void box.offsetHeight;
+}
+
+// ── 2026-08-20 15:35 模块扩展详情弹窗 (趋势大图/全部问题点/完整出勤表) ──
+let detailType = null;
+let detailLineName = null; // 2026-08-21: 点击趋势卡片放大的目标线体
+let trendDetailMode = "all"; // all | sel | over100
+function openDetail(type) {
+  detailType = type;
+  document.getElementById("detailModal").classList.add("open");
+  renderDetail(type);
+}
+function closeDetail() {
+  document.getElementById("detailModal").classList.remove("open");
+  detailType = null;
+}
+function renderDetail(type) {
+  const title = document.getElementById("detailTitle");
+  const modes = document.getElementById("detailModes");
+  const src = document.getElementById("detailSrc");
+  const body = document.getElementById("detailBody");
+  const zh = (typeof lang !== "undefined") ? (lang === "zh") : true;
+  if (type === "line") renderDetailLine(title, modes, src, body, zh);
+  else if (type === "trend") renderDetailTrend(title, modes, src, body, zh);
+  else if (type === "problems") renderDetailProblems(title, modes, src, body, zh);
+  else if (type === "attendance") renderDetailAttendance(title, modes, src, body, zh);
+}
+
+// ★ 2026-08-21 12:01: 单线体趋势放大图 (点击趋势卡片触发)
+function renderDetailLine(title, modes, src, body, zh) {
+  const n = detailLineName;
+  const hist = getTrendHist();
+  if (!n || !hist.length) {
+    body.innerHTML = "<div style='color:var(--gray);padding:30px;text-align:center'>" + (zh ? "暂无历史数据" : "No history") + "</div>";
+    modes.innerHTML = ""; src.textContent = "SRC: -";
+    return;
+  }
+  title.textContent = "📈 " + n + (zh ? " · 趋势放大图" : " · Trend Detail");
+  modes.innerHTML = "";
+  src.textContent = hist.length + " 天快照";
+  body.innerHTML = "<canvas id='chartTrendDetail' style='flex:1;min-height:0;width:100%'></canvas>";
+  requestAnimationFrame(drawTrendDetailLine);
+}
+function drawTrendDetailLine() {
+  const cv = document.getElementById("chartTrendDetail");
+  const hist = getTrendHist();
+  if (!cv || !hist.length || !detailLineName) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight || 300;
+  if (W < 60 || H < 60) return;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const n = detailLineName;
+  const days = hist.slice(-30);
+  const padL = 46, padB = 24, padT = 22;
+  const cw = W - padL - 16, ch = H - padT - padB;
+  const yMin = 60, yMax = 120; // 与主页卡片一致, 目标线100%固定
+  // Y轴刻度
+  ctx.strokeStyle = "#21262d"; ctx.fillStyle = "#8b949e"; ctx.font = "11px sans-serif";
+  for (let i = 0; i <= 4; i++) {
+    const v = yMin + (yMax - yMin) * i / 4;
+    const y = padT + ch - (ch * i / 4);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - 12, y); ctx.stroke();
+    ctx.fillText(Math.round(v) + "%", 4, y + 4);
+  }
+  const y100 = padT + ch - (ch * 100 / (yMax - yMin)) + (ch * yMin / (yMax - yMin));
+  const y100f = padT + ch - (ch * (100 - yMin) / (yMax - yMin));
+  ctx.strokeStyle = "rgba(63,185,80,.4)"; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(padL, y100f); ctx.lineTo(W - 12, y100f); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#3fb950"; ctx.fillText("100% 目标", W - 64, y100f - 5);
+  // X轴日期
+  ctx.fillStyle = "#8b949e";
+  const xStep = cw / Math.max(days.length - 1, 1);
+  const xIx = [];
+  [0, Math.floor((days.length - 1) / 2), days.length - 1].forEach(ix => { if (xIx.indexOf(ix) < 0) xIx.push(ix); });
+  xIx.forEach(ix => ctx.fillText(String(days[ix].date || "").slice(5), padL + ix * xStep - 12, H - 7));
+  // 数据线 + 数据标签
+  const color = TREND_COLORS[0];
+  const vals = days.map(d => { const v = Number(d.lines && d.lines[n]); return isNaN(v) ? null : v; });
+  const pts = [];
+  vals.forEach((v, ix) => {
+    if (v == null) return;
+    const x = padL + ix * xStep;
+    const y = padT + ch - (ch * (Math.min(Math.max(v, yMin), yMax) - yMin) / (yMax - yMin));
+    pts.push([x, y, v]);
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+    ctx.strokeStyle = "#0d1117"; ctx.lineWidth = 2; ctx.stroke();
+    // 数据标签(带%): 点上方, halo 防压线
+    ctx.font = "bold 12px sans-serif"; ctx.fillStyle = color;
+    ctx.textAlign = "center";
+    const txtY = y < padT + 16 ? y + 20 : y - 12;
+    ctx.strokeStyle = "rgba(13,17,23,.9)"; ctx.lineWidth = 4;
+    ctx.strokeText(Math.round(v) + "%", x, txtY);
+    ctx.fillText(Math.round(v) + "%", x, txtY);
+    ctx.textAlign = "left";
+  });
+  ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineJoin = "round";
+  ctx.beginPath();
+  pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]); });
+  ctx.stroke();
+}
+
+// ── 趋势详情: 大图 + 形态切换 (全部线/仅选中/仅≥100%) ──
+function renderDetailTrend(title, modes, src, body, zh) {
+  title.textContent = zh ? "📈 达成率趋势 · 详细大图" : "📈 Rate Trend · Detailed";
+  const hist = getTrendHist();
+  if (!hist.length) {
+    body.innerHTML = "<div style='color:var(--gray);padding:30px;text-align:center'>" + (zh ? "暂无历史数据 — 每日17:00自动快照后出现" : "No history — appears after daily 17:00 snapshot") + "</div>";
+    modes.innerHTML = ""; src.textContent = "SRC: -";
+    return;
+  }
+  const modesHtml = [
+    ["all", zh ? "全部线体" : "All lines"],
+    ["sel", zh ? "仅选中" : "Selected"],
+    ["over100", zh ? "仅≥100%" : "Over 100%"]
+  ].map(x => "<button class='detail-mode-btn " + (trendDetailMode === x[0] ? "on" : "") + "' onclick='setTrendDetailMode(\"" + x[0] + "\")'>" + x[1] + "</button>").join("");
+  modes.innerHTML = modesHtml;
+  src.textContent = hist.length + " 天快照";
+  body.innerHTML = "<div id='detailTrendLines' style='display:flex;flex-wrap:wrap;gap:3px 4px;margin-bottom:8px;flex-shrink:0'></div><canvas id='chartTrendDetail' style='flex:1;min-height:0;width:100%'></canvas>";
+  const wrap = document.getElementById("detailTrendLines");
+  const lineNames = [];
+  hist.forEach(d => { Object.keys(d.lines || {}).forEach(n => { if (lineNames.indexOf(n) < 0) lineNames.push(n); }); });
+  const last = hist[hist.length - 1] || {};
+  lineNames.sort((a, b) => (Number(last.lines && last.lines[b]) || 0) - (Number(last.lines && last.lines[a]) || 0));
+  wrap.innerHTML = lineNames.map((n, i) => {
+    const c = TREND_COLORS[i % TREND_COLORS.length];
+    const on = trendSel[n] ? "on" : "";
+    return "<span class='trend-line-pick " + on + "' data-line='" + n.replace(/'/g, "") + "' title='" + n + "' style='cursor:pointer' onclick='toggleTrendDetailLine(this)'><span class='dot' style='background:" + c + "'></span>" + tinyName(n) + "</span>";
+  }).join("");
+  requestAnimationFrame(drawTrendDetail);
+}
+function setTrendDetailMode(k) {
+  trendDetailMode = k;
+  const body = document.getElementById("detailBody");
+  if (!body || !detailType) return;
+  renderDetailTrend(document.getElementById("detailTitle"), document.getElementById("detailModes"), document.getElementById("detailSrc"), body, (typeof lang !== "undefined") ? (lang === "zh") : true);
+}
+function toggleTrendDetailLine(el) {
+  const n = el.getAttribute("data-line");
+  if (!n) return;
+  trendSel[n] = !trendSel[n];
+  el.classList.toggle("on", trendSel[n]);
+  try { localStorage.setItem(TREND_SEL_KEY, JSON.stringify(trendSel)); } catch (e) {}
+  drawTrendDetail();
+}
+function drawTrendDetail() {
+  const cv = document.getElementById("chartTrendDetail");
+  const hist = getTrendHist();
+  if (!cv || !hist.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight || 300;
+  if (W < 60 || H < 60) return;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const days = hist.slice(-30);
+  const padL = 40, padB = 22, padT = 20;
+  const cw = W - padL - 14, ch = H - padT - padB;
+  let names = Object.keys(trendSel).filter(n => trendSel[n]);
+  if (trendDetailMode === "all") {
+    const all = [];
+    hist.forEach(d => { Object.keys(d.lines || {}).forEach(n => { if (all.indexOf(n) < 0) all.push(n); }); });
+    names = all;
+  } else if (trendDetailMode === "over100") {
+    names = names.filter(n => { const v = Number(hist[hist.length - 1].lines && hist[hist.length - 1].lines[n]); return !isNaN(v) && v >= 100; });
+  }
+  let maxV = 100;
+  days.forEach(d => { Object.keys(d.lines || {}).forEach(n => { const v = Number(d.lines[n]); if (!isNaN(v) && v > maxV) maxV = v; }); });
+  maxV = Math.ceil(maxV / 10) * 10;
+  ctx.strokeStyle = "#21262d"; ctx.fillStyle = "#8b949e"; ctx.font = "10px sans-serif";
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ch - (ch * i / 4);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - 10, y); ctx.stroke();
+    ctx.fillText(Math.round(maxV * i / 4) + "%", 3, y + 3);
+  }
+  if (maxV >= 100) {
+    const y100 = padT + ch - (ch * 100 / maxV);
+    ctx.strokeStyle = "rgba(63,185,80,.35)"; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(padL, y100); ctx.lineTo(W - 10, y100); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#3fb950"; ctx.fillText("100%", W - 44, y100 - 4);
+  }
+  ctx.fillStyle = "#8b949e";
+  const xStep = cw / Math.max(days.length - 1, 1);
+  [0, Math.floor((days.length - 1) / 2), days.length - 1].forEach(ix => {
+    ctx.fillText(String(days[ix].date || "").slice(5), padL + ix * xStep - 14, H - 6);
+  });
+  names.forEach((n, li) => {
+    const color = TREND_COLORS[li % TREND_COLORS.length];
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+    const pts = [];
+    days.forEach((d, ix) => {
+      const v = Number(d.lines && d.lines[n]);
+      if (isNaN(v)) return;
+      const x = padL + ix * xStep;
+      const y = padT + ch - (ch * Math.min(v, maxV) / maxV);
+      pts.push([x, y]);
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    });
+    if (pts.length > 1) {
+      ctx.beginPath();
+      pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]); });
+      ctx.stroke();
+    }
+    if (pts.length) {
+      const last = pts[pts.length - 1];
+      ctx.font = "bold 10px sans-serif";
+      ctx.fillText(tinyName(n) + " " + Math.round(Number(days[days.length - 1].lines[n])) + "%", Math.min(last[0] + 4, W - 52), last[1] - 6);
+    }
+  });
+}
+
+// ── 问题点详情: 全部问题点 (不只 Top3) ──
+function renderDetailProblems(title, modes, src, body, zh) {
+  title.textContent = zh ? "🚨 全部问题点明细" : "🚨 All Problem Details";
+  modes.innerHTML = "";
+  const { problems } = getExtraData();
+  if (!problems.length) {
+    body.innerHTML = "<div style='color:var(--gray);padding:30px;text-align:center'>" + (zh ? "暂无问题点数据" : "No problem data") + "</div>";
+    src.textContent = "SRC: 0 条";
+    return;
+  }
+  src.textContent = "共 " + problems.length + " 条";
+  const groups = {};
+  problems.forEach(p => {
+    const bname = mapProbLineToBoard(p.line, p.problem) || p.line || p.ws || "其他";
+    if (!groups[bname]) groups[bname] = [];
+    groups[bname].push(p);
+  });
+  const bnames = Object.keys(groups).sort((a, b) => {
+    const impA = groups[a].reduce((s, p) => s + Math.abs(Number(p.impact) || 0), 0);
+    const impB = groups[b].reduce((s, p) => s + Math.abs(Number(p.impact) || 0), 0);
+    return impB - impA;
+  });
+  const rows = bnames.map(bname => {
+    const ps = groups[bname].slice().sort((x, y) => Math.abs(Number(y.impact) || 0) - Math.abs(Number(x.impact) || 0));
+    const items = ps.map((p, i) => {
+      let raw = String(p.problem_zh || p.problem_th || p.problem || "").replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+      if (!zh && p.problem_th) raw = String(p.problem_th).replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+      const imp = (p.impact != null && p.impact !== "") ? " <span style='color:var(--red);font-weight:700'>" + (Number(p.impact) <= 0 ? "" : "+") + Number(p.impact) + "台</span>" : "";
+      return "<div class='prob-top'><span class='prob-rank r" + ((i % 3) + 1) + "'>" + ["①", "②", "③"][i % 3] + "</span>" +
+        (fmtTime(p.time) ? "<span class='prob-time'>" + fmtTime(p.time) + "</span> " : "") +
+        "<span class='prob-txt'>" + raw.replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</span>" + imp + "</div>";
+    }).join("");
+    return "<tr><td class='prob-line'>" + bname + "<div class='prob-lineimp'>" + ps.length + "条</div></td><td class='prob-cell'>" + items + "</td></tr>";
+  }).join("");
+  body.innerHTML = "<table class='mod-table'><thead><tr><th style='width:120px'>" + (zh ? "线体" : "Line") + "</th><th>" + (zh ? "具体问题点" : "Problems") + "</th></tr></thead><tbody>" + rows + "</tbody></table>";
+}
+
+// ── 出勤详情: 完整出勤表 ──
+function renderDetailAttendance(title, modes, src, body, zh) {
+  title.textContent = zh ? "👥 完整出勤表" : "👥 Full Attendance";
+  modes.innerHTML = "";
+  const { attendance } = getExtraData();
+  if (!attendance || !attendance.rows || !attendance.rows.length) {
+    body.innerHTML = "<div style='color:var(--gray);padding:30px;text-align:center'>" + (zh ? "暂无出勤数据 — 点「✏️ 录入」填写当日出勤" : "No attendance — click ✏️ to enter today") + "</div>";
+    src.textContent = "SRC: 无数据";
+    return;
+  }
+  const rows = attendance.rows;
+  src.textContent = (attendance.date || "") + " · " + rows.length + " 车间";
+  const trs = rows.map((r, i) => {
+    const rate = parseFloat(r.rate);
+    const rc = rateCls(rate);
+    const staff = (r.staff != null && r.staff !== "") ? r.staff : "-";
+    const attend = (r.attend != null && r.attend !== "") ? r.attend : "-";
+    return "<tr class='" + (i % 2 ? "alt" : "") + "'><td style='text-align:center'>" + (i + 1) + "</td><td>" + (r.ws || "-") + "</td><td style='text-align:center'>" + staff + "</td><td style='text-align:center'>" + attend + "</td><td style='text-align:center' class='" + rc + "'>" + (isNaN(rate) ? "-" : rate.toFixed(1) + "%") + "</td></tr>";
+  }).join("");
+  body.innerHTML = "<table class='mod-table' style='max-width:640px;margin:0 auto'><thead><tr><th>#</th><th>" + (zh ? "车间" : "Workshop") + "</th><th>" + (zh ? "应到" : "Staff") + "</th><th>" + (zh ? "实到" : "Attend") + "</th><th>" + (zh ? "出勤率" : "Rate") + "</th></tr></thead><tbody>" + trs + "</tbody></table>";
+}
+
+// ESC 关闭详情弹窗
+document.addEventListener("keydown", function(e) { if (e.key === "Escape") closeDetail(); });
+// 点击遮罩关闭
+document.addEventListener("click", function(e) { if (e.target && e.target.id === "detailModal") closeDetail(); });
+
+// ── 出勤录入 ──
+const ATT_LINES = ["PRO1","PRO2","PRO3","PRO4","PRO5","PRO6"];
+function openAttModal() {
+  const d = document.getElementById("attF-date");
+  if (d) {
+    const now = new Date();
+    d.value = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  }
+  let rows = [];
+  try {
+    const ma = attReadLocal();
+    if (ma && ma.rows) rows = ma.rows;
+  } catch (e) {}
+  const box = document.getElementById("attF-rows");
+  if (box) {
+    box.innerHTML = "<table class='mod-table' style='max-width:520px;margin:0 auto'><thead><tr><th>" + (typeof lang !== "undefined" && lang === "en" ? "WS" : "车间") + "</th><th>" + (typeof lang !== "undefined" && lang === "en" ? "Staff" : "在编") + "</th><th>" + (typeof lang !== "undefined" && lang === "en" ? "Attend" : "出勤") + "</th></tr></thead><tbody>" +
+      ATT_LINES.map(ws => {
+        const r = rows.find(x => x.ws === ws) || {};
+        return "<tr><td style='text-align:center;font-weight:700'>" + ws + "</td>" +
+          "<td style='text-align:center'><input class='ex-input num' id='attF-staff-" + ws + "' value='" + (r.staff != null ? r.staff : "") + "' style='width:70px;text-align:center'></td>" +
+          "<td style='text-align:center'><input class='ex-input num' id='attF-attend-" + ws + "' value='" + (r.attend != null ? r.attend : "") + "' style='width:70px;text-align:center'></td></tr>";
+      }).join("") + "</tbody></table>";
+  }
+  document.getElementById("attModal").classList.add("open");
+}
+function closeAttModal() { document.getElementById("attModal").classList.remove("open"); }
+function saveAttModal() {
+  const date = (document.getElementById("attF-date").value || "").trim();
+  const rows = ATT_LINES.map(ws => {
+    const staff = parseFloat(document.getElementById("attF-staff-" + ws).value) || 0;
+    const attend = parseFloat(document.getElementById("attF-attend-" + ws).value) || 0;
+    const rate = staff > 0 ? Math.round(attend / staff * 1000) / 10 : null;
+    return { ws: ws, staff: staff || null, attend: attend || null, rate: rate };
+  }).filter(r => r.staff !== null || r.attend !== null);
+  if (!rows.length) { alert("至少填一个车间"); return; }
+  const rec = { date: date, rows: rows, savedAt: Date.now() };
+  attWriteLocal(rec);
+  attWriteRemote(rec); // 2026-08-21: 同步到 Firebase → 其他端自动拉取
+  closeAttModal();
+  renderAttendance();
+}
+
+// 2026-08-21: 问题点手动录入功能已取消 (数据全部由 extract_problems.py 每小时自动同步)
+
+// ── 模式按钮 ──
+document.getElementById("modeBtn").addEventListener("click", function () {
+  setViewMode(viewMode === "battle" ? "daily" : "battle");
+});
+
+// ── 趋势图拖拽手柄: 左右拉伸宽度 (20%~60%), 问题点模块自动让位, 只改宽度不改高度 ──
+const TREND_W_KEY = "pdtiii_trend_w_v1";
+// 绝对定位拖拽手柄: 定位在 problems 与 trend 之间的 10px 缝隙中 (不占布局空间)
+function syncHandlePos() {
+  const handle = document.getElementById("trendHandle");
+  const prob = document.getElementById("mod-problems");
+  const extra = document.getElementById("extra-modules");
+  if (!handle || !prob || !extra) return;
+  if (extra.style.display === "none" || prob.style.display === "none") { handle.style.display = "none"; return; }
+  handle.style.display = "";
+  handle.style.left = (prob.offsetLeft + prob.offsetWidth + 5) + "px"; // gap 10px 中点
+}
+function initTrendResize() {
+  const handle = document.getElementById("trendHandle");
+  if (!handle) return;
+  let dragging = false, startX = 0, startW = 40;
+  handle.addEventListener("mousedown", function (e) {
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX;
+    const trend = document.getElementById("mod-trend");
+    if (trend) startW = parseFloat(trend.style.flexBasis) || 40;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  });
+  window.addEventListener("mousemove", function (e) {
+    if (!dragging) return;
+    const trend = document.getElementById("mod-trend");
+    const extra = document.getElementById("extra-modules");
+    if (!trend || !extra) return;
+    const dx = e.clientX - startX;
+    const pct = Math.max(20, Math.min(60, startW + dx / extra.clientWidth * 100));
+    trend.style.flexBasis = pct + "%";
+    try { localStorage.setItem(TREND_W_KEY, String(Math.round(pct * 10) / 10)); } catch (err) {}
+    syncHandlePos();
+    if (typeof drawTrend === "function") { try { drawTrend(); } catch (err) {} }
+  });
+  window.addEventListener("mouseup", function () {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  });
+  // 恢复上次拉伸宽度
+  try {
+    const saved = parseFloat(localStorage.getItem(TREND_W_KEY));
+    if (saved >= 20 && saved <= 60) document.getElementById("mod-trend").style.flexBasis = saved + "%";
+  } catch (err) {}
+  syncHandlePos();
+}
+
+// 应用持久化的折叠状态
+Object.keys(collapseMap).forEach(id => {
+  const el = document.getElementById(id);
+  if (el && collapseMap[id]) el.style.display = "none";
+});
+// 初始化: 模式显示 + 渲染 + 定时刷新
+setViewMode(viewMode);
+initTrendResize();
+window.addEventListener("resize", function(){ applyScale(); syncHandlePos(); });
+setInterval(renderExtra, 60000);
+attSyncFromRemote(); // 2026-08-21: 页面加载即拉取云端出勤 (跨端同步)
+setInterval(attSyncFromRemote, 7200000); // 每2小时同步一次 (2026-08-21 11:46 用户要求: 60s太浪费资源)
+// ★ 每日17:00自动快照 (页面开着时): 检查是否到17:00且今天未快照过
+setInterval(function () {
+  const now = new Date();
+  if (now.getHours() === 17 && now.getMinutes() >= 0 && now.getMinutes() <= 5) {
+    try {
+      const pad = n => String(n).padStart(2, "0");
+      const date = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
+      const hist = getTrendHist();
+      if (!hist.some(d => d.date === date)) saveDailySnapshot();
+    } catch (e) {}
+  }
+}, 60000);
+// 首次加载后嵌入问题点 (此时主表格已由 refresh 渲染)
+setTimeout(function () { renderProblems(); }, 300);
+</script>
+<!-- 版本浮层: 确认当前加载的版本 (防缓存混淆) -->
+<button id="restoreModsBtn" onclick="resetModuleLayout()" title="显示被折叠的模块" style="position:fixed;right:8px;bottom:26px;z-index:99999;font-size:10px;color:#9aa7b8;background:rgba(18,24,34,.75);border:1px solid #2a3444;border-radius:8px;padding:2px 8px;cursor:pointer;opacity:.6;display:none">🔁 恢复模块</button>
+</body>
+</html>
