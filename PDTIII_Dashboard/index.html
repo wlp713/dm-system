@@ -575,6 +575,12 @@
       </div>
       <button class="ex-expand" onclick="openDetail('trend')" title="⛶ 查看详细趋势图" data-i18n-title="expandTrend">⛶</button>
       <div class="ex-body">
+        <!-- 2026-08-25: 趋势数据源切换 [达成率 | 首小时达成率(8-9点)] -->
+        <div id="trendModeBar" style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
+          <button class="ex-btn trend-mode-btn" id="trendModeRateBtn" onclick="setTrendMode('rate')" style="font-size:10px;padding:1px 8px">📊 达成率</button>
+          <button class="ex-btn trend-mode-btn" id="trendModeFirstBtn" onclick="setTrendMode('first')" style="font-size:10px;padding:1px 8px">⏰ 首小时(8-9点)</button>
+          <span id="trendModeHint" style="font-size:9px;color:var(--gray)"></span>
+        </div>
         <div id="trend-lines"></div>
         <div id="chartTrend"></div>
       </div>
@@ -683,6 +689,11 @@
           </table>
         </div>
       </div>
+      </div>
+      <!-- ★ 2026-08-25: 首小时达成 (8-9点) — 历史记录/趋势/排名, 数据来自 live-data.js first_hour (每10分钟同步) -->
+      <div class="hist-section" style="grid-column:1/-1;margin-top:14px">
+        <h4 id="histFirstHourTitle">⏰ 首小时达成 (8-9点) · 历史 / 趋势 / 排名</h4>
+        <div id="histFirstHourBody"></div>
       </div>
     </div>
   </div>
@@ -2013,6 +2024,13 @@ function renderHistReplay(snap, histDays) {
   const eff = snap.eff || {};
   const problems = snap.problems || [];
   const att = snap.attendance;
+  // ── 2026-08-25: 首小时达成 (8-9点) 回看: 快照含 first_hour 时展示表格 ──
+  const fh = snap.first_hour || [];
+  const fhHtml = fh.length ? "<div style='background:var(--panel);border-radius:8px;padding:8px;margin-top:10px'><b style='font-size:11px'>" + (zh ? "⏰ 首小时达成 (8-9点)" : "⏰ First-Hour (8-9am)") + "</b><div style='margin-top:4px;max-height:200px;overflow-y:auto'><table class='hist-table' style='width:100%;font-size:10.5px'><thead><tr><th>" + (zh ? "线体" : "Line") + "</th><th>" + (zh ? "目标" : "Target") + "</th><th>" + (zh ? "实际" : "Actual") + "</th><th>" + (zh ? "达成率" : "Rate") + "</th></tr></thead><tbody>" + fh.map(e => {
+    const r = Number(e.rate);
+    const rc = r >= 100 ? "ok" : (r < 90 ? "bad" : "");
+    return "<tr><td>" + (e.line || e.ws || "-") + "</td><td style='text-align:center'>" + (e.target != null ? e.target : "-") + "</td><td style='text-align:center'>" + (e.actual != null ? e.actual : "-") + "</td><td style='text-align:center' class='" + rc + "'>" + (isNaN(r) ? "-" : r.toFixed(1) + "%") + "</td></tr>";
+  }).join("") + "</tbody></table></div></div>" : "";
   // 默认展示主要 8 条线体 (与主页一致)
   const main8 = histMainLines(snap);
   // ① 产量对比表 (只显示主要8条, 按实际产出降序)
@@ -2066,7 +2084,8 @@ function renderHistReplay(snap, histDays) {
       "<div style='background:var(--panel);border-radius:8px;padding:8px;min-width:0'><b style='font-size:11px'>" + (zh ? "📊 问题重复趋势 (近7日)" : "📊 Repeat Trend (7d)") + "</b>" +
         "<div style='margin-top:4px;max-height:300px;overflow-y:auto'>" + trendHtml + "</div></div>" +
     "</div>" +
-    "<div style='background:var(--panel);border-radius:8px;padding:8px;margin-top:10px'><b style='font-size:11px'>" + (zh ? "👥 出勤表" : "👥 Attendance") + "</b><div style='margin-top:4px;max-height:180px;overflow-y:auto'>" + attHtml + "</div></div>";
+    "<div style='background:var(--panel);border-radius:8px;padding:8px;margin-top:10px'><b style='font-size:11px'>" + (zh ? "👥 出勤表" : "👥 Attendance") + "</b><div style='margin-top:4px;max-height:180px;overflow-y:auto'>" + attHtml + "</div></div>" +
+    fhHtml;
 }
 function renderHist() {
   const now = new Date();
@@ -2141,6 +2160,97 @@ function renderHist() {
       `<td class="champ">${a.first ? '🏆 ' + a.first : '-'}</td>` +
       `<td class="lastp">${a.last ? '🔻 ' + a.last : '-'}</td></tr>`;
   });
+  // ── 2026-08-25: 首小时达成 (8-9点) 历史/趋势/排名 ──
+  renderFirstHourHist();
+}
+// ⏰ 首小时达成 (8-9点) — 历史记录表 + 今日排名 + 迷你趋势 (2026-08-25 新增)
+//   数据源: __HISTORY__[].first_hour (跨天, extract每10分钟更新当天) + __LIVE_DATA__.first_hour (当天全量 target/actual)
+function renderFirstHourHist() {
+  const body = document.getElementById("histFirstHourBody");
+  const title = document.getElementById("histFirstHourTitle");
+  if (!body) return;
+  const zh = (typeof lang !== "undefined") ? (lang === "zh") : true;
+  let hist = (typeof window.__HISTORY__ !== "undefined" && Array.isArray(window.__HISTORY__)) ? window.__HISTORY__ : [];
+  hist = hist.filter(d => d && d.first_hour && Object.keys(d.first_hour).length && !isWeekendDate(d.date));
+  // 当天全量明细 (target/actual) 优先来自 __LIVE_DATA__.first_hour
+  let todayDetail = [];
+  try {
+    const ld = (typeof window.__LIVE_DATA__ !== "undefined") ? window.__LIVE_DATA__ : null;
+    todayDetail = (ld && ld.first_hour) || [];
+  } catch (e) {}
+  const today = todayKey();
+  const todayRec = hist.filter(h => h.date === today);
+  // 确定展示日期集: 今天 + 最近的工作日 (去重, 最多10天)
+  const days = [];
+  [today].concat(hist.map(h => h.date)).forEach(d => { if (d && days.indexOf(d) < 0 && !isWeekendDate(d)) days.push(d); });
+  const dayRows = days.slice(-10);
+  if (!dayRows.length && !todayDetail.length) {
+    body.innerHTML = "<div style='color:var(--gray);font-size:11px;padding:8px 2px'>" + (zh ? "暂无首小时数据 — 现场在Excel填写8-9点时段后自动同步" : "No first-hour data yet — auto-syncs after 8-9am entries in Excel") + "</div>";
+    return;
+  }
+  // 今天数据: __HISTORY__ 优先, 否则 __LIVE_DATA__.first_hour 现场组装
+  const fhMap = d => (d && d.first_hour) || {};
+  if (!todayRec.length && todayDetail.length) {
+    const m = {};
+    todayDetail.forEach(e => { if (e && e.line && e.rate != null) m[e.line] = Number(e.rate); });
+    if (Object.keys(m).length) { hist = hist.slice(); hist.push({ date: today, first_hour: m }); hist.sort((a, b) => String(a.date).localeCompare(String(b.date))); }
+  }
+  const daysAll = hist.filter(h => h.date && !isWeekendDate(h.date));
+  const lastRec = daysAll.length ? daysAll[daysAll.length - 1] : null;
+  const lastMap = lastRec ? fhMap(lastRec) : {};
+  // ① 排名 (最新一天, 按达成率降序, 前5名加奖牌)
+  const ranked = Object.keys(lastMap).map(n => ({ n, v: Number(lastMap[n]) })).filter(x => !isNaN(x.v)).sort((a, b) => b.v - a.v);
+  const medal = ["🥇", "🥈", "🥉", "4", "5"];
+  const rankHtml = ranked.length ? ranked.map((x, i) =>
+    "<span style='white-space:nowrap;font-size:10px'><b>" + (medal[i] || (i + 1)) + "</b> " + tinyName(x.n) + " <span class='" + (x.v >= 100 ? "ok" : x.v >= 90 ? "" : "bad") + "'>" + x.v.toFixed(1) + "%</span></span>"
+  ).join(" · ") : (zh ? "暂无" : "none");
+  // ② 历史记录表: 行=日期, 列=主要线体 (todayDetail 可显示 target/actual)
+  const detailMap = {};
+  todayDetail.forEach(e => { if (e && e.line) detailMap[e.line] = e; });
+  const lineSet = [];
+  daysAll.forEach(d => Object.keys(fhMap(d)).forEach(n => { if (lineSet.indexOf(n) < 0) lineSet.push(n); }));
+  Object.keys(detailMap).forEach(n => { if (lineSet.indexOf(n) < 0) lineSet.push(n); });
+  const showLines = lineSet.slice(0, 10); // 最多10条线
+  const cellCls = v => v >= 100 ? "ok" : (v >= 90 ? "" : "bad");
+  const trs = daysAll.slice(-10).map(d => {
+    const m = fhMap(d);
+    return "<tr><td style='white-space:nowrap;font-size:10px'>" + String(d.date).slice(5) + "</td>" +
+      showLines.map(n => {
+        const v = m[n];
+        if (v == null) return "<td class='zero'>-</td>";
+        const det = detailMap[n];
+        const tip = (det && d.date === today) ? ("T:" + det.target + " A:" + det.actual) : "";
+        return "<td class='" + cellCls(v) + "' title='" + tip + "'>" + Number(v).toFixed(0) + "</td>";
+      }).join("") + "</tr>";
+  }).join("");
+  const ttl = (title ? title.textContent : "");
+  const tableHtml = "<div style='display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start'>" +
+    "<div style='background:var(--panel);border-radius:8px;padding:8px;min-width:0'><b style='font-size:11px'>" + (zh ? "🏆 最新排名" : "🏆 Latest Rank") + " (" + (lastRec ? String(lastRec.date).slice(5) : "-") + ")" + "</b><div style='margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 10px;max-width:300px'>" + rankHtml + "</div></div>" +
+    "<div style='background:var(--panel);border-radius:8px;padding:8px;min-width:0'><b style='font-size:11px'>" + (zh ? "📋 历史记录 (达成率%, 悬停看T/A)" : "📋 History (rate%, hover for T/A)") + "</b>" +
+      "<div style='max-height:220px;overflow-y:auto;margin-top:4px'><table class='hist-table' style='width:100%;font-size:10px'><thead><tr><th>" + (zh ? "日期" : "Date") + "</th>" + showLines.map(n => "<th title='" + n + "'>" + tinyName(n) + "</th>").join("") + "</tr></thead><tbody>" + trs + "</tbody></table></div></div></div>";
+  // ③ 迷你趋势: 近10天各线首小时达成率折线 (复用 spark-card 风格, 简单版)
+  const lastN = daysAll.slice(-10);
+  const lineCards = showLines.map((n, li) => {
+    const color = TREND_COLORS[li % TREND_COLORS.length];
+    const vals = lastN.map(d => { const v = Number(fhMap(d)[n]); return isNaN(v) ? null : v; });
+    const lastV = vals[vals.length - 1];
+    if (lastV == null) return "";
+    const W = 90, H = 26, pad = 2, yMin = 60, yMax = 120;
+    const pts = vals.map((v, ix) => {
+      if (v == null) return null;
+      const x = pad + (ix / Math.max(lastN.length - 1, 1)) * (W - pad * 2);
+      const y = H - pad - ((Math.min(Math.max(v, yMin), yMax) - yMin) / (yMax - yMin)) * (H - pad * 2);
+      return x.toFixed(1) + "," + y.toFixed(1);
+    }).filter(Boolean);
+    const y100 = H - pad - ((100 - yMin) / (yMax - yMin)) * (H - pad * 2);
+    return "<div style='display:flex;align-items:center;gap:6px;min-width:0' title='" + n + "'><span style='font-size:10px;color:" + color + ";white-space:nowrap;width:26px'>" + tinyName(n) + "</span><svg viewBox='0 0 " + W + " " + H + "' preserveAspectRatio='none' style='width:110px;height:26px;flex-shrink:0'><line x1='0' y1='" + y100.toFixed(1) + "' x2='" + W + "' y2='" + y100.toFixed(1) + "' stroke='rgba(63,185,80,.35)' stroke-width='1'/><polyline points='" + pts.join(" ") + "' fill='none' stroke='" + color + "' stroke-width='1.6' stroke-linejoin='round' stroke-linecap='round'/></svg><span style='font-size:10px;color:var(--gray);white-space:nowrap'>" + (lastV != null ? lastV.toFixed(0) + "%" : "-") + "</span></div>";
+  }).join("");
+  const trendHtml = lineCards ? "<div style='background:var(--panel);border-radius:8px;padding:8px;margin-top:10px;min-width:0'><b style='font-size:11px'>" + (zh ? "📈 首小时达成率趋势 (近" + lastN.length + "工作日)" : "📈 First-Hour Trend (last " + lastN.length + " workdays)") + "</b><div style='margin-top:6px;display:flex;flex-wrap:wrap;gap:6px 14px'>" + lineCards + "</div></div>" : "";
+  body.innerHTML = tableHtml + trendHtml;
+  if (ttl && ttl.indexOf("首小时") < 0 && ttl.indexOf("First-Hour") < 0) {
+    // 标题加数据源说明 (仅首次)
+    if (title) title.textContent = (zh ? "⏰ 首小时达成 (8-9点) · 历史 / 趋势 / 排名" : "⏰ First-Hour (8-9am) · History / Trend / Rank");
+  }
 }
 // 聚合集平均达成率(表头摘要用)
 function wkAvg(agg) {
@@ -2188,7 +2298,7 @@ setInterval(refresh, 10000);
 // ★ 标题秒表: 每秒刷新日期/班次/时段(精确到秒)
 setInterval(updatePeriodLabel, 1000);
 </script>
-<script src="live-data.js?v=20260825a"></script>
+<script src="live-data.js?v=20260825b"></script>
 <script>
 "use strict";
 /* ═══════════════════════════════════════════════════════════
@@ -2356,6 +2466,19 @@ function renderExtra() {
 // 历史数据来源: 每日 17:00 快照 (cron 调 save_daily_history.py 写 live-data.js -> __HISTORY__), localStorage 兜底
 const TREND_HIST_KEY = "pdtiii_trend_hist_v2";
 const TREND_SEL_KEY = "pdtiii_trend_sel_v2";
+// ── 2026-08-25: 趋势数据源模式: rate=达成率(默认) | first=首小时达成率(8-9点) ──
+const TREND_MODE_KEY = "pdtiii_trend_mode_v1";
+let trendMode = "rate";
+try { trendMode = localStorage.getItem(TREND_MODE_KEY) === "first" ? "first" : "rate"; } catch (e) { trendMode = "rate"; }
+function setTrendMode(m) {
+  trendMode = (m === "first") ? "first" : "rate";
+  try { localStorage.setItem(TREND_MODE_KEY, trendMode); } catch (e) {}
+  const rb = document.getElementById("trendModeRateBtn");
+  const fb = document.getElementById("trendModeFirstBtn");
+  if (rb) rb.style.background = trendMode === "rate" ? "var(--accent)" : "";
+  if (fb) fb.style.background = trendMode === "first" ? "var(--accent)" : "";
+  renderTrend();
+}
 let trendSel = {}; // {线体名: true/false}
 try { trendSel = JSON.parse(localStorage.getItem(TREND_SEL_KEY) || "{}") || {}; } catch (e) { trendSel = {}; }
 // 线体颜色表
@@ -2376,7 +2499,8 @@ function getTrendHist() {
     try { const l = JSON.parse(localStorage.getItem(TREND_HIST_KEY) || "[]"); if (Array.isArray(l) && l.length) h = l; } catch (e) {}
   }
   h = (h || []).slice().filter(d => !isWeekendDate(d && d.date));
-  // ★ 当天实时达成率合并: 若最后一天不是今天(且今天是工作日), 则用 state.lines 的 eff 追加今日记录
+  // ★ 当天实时数据合并: 若最后一天不是今天(且今天是工作日), 则追加今日记录
+  //   rate 模式: state.lines 的 eff (达成率); first 模式: __LIVE_DATA__.first_hour (首小时8-9点)
   try {
     const today = todayKey();
     const last = h.length ? h[h.length - 1] : null;
@@ -2385,14 +2509,34 @@ function getTrendHist() {
       state.lines.forEach(l => {
         if (l && l.name && l.eff != null && !isNaN(l.eff)) rec.lines[l.name] = Number(l.eff);
       });
-      if (Object.keys(rec.lines).length) h.push(rec);
+      // 2026-08-25: 首小时达成 (当天实时, 每10分钟由 extract 更新)
+      try {
+        const ld = (typeof window.__LIVE_DATA__ !== "undefined") ? window.__LIVE_DATA__ : null;
+        const fh = (ld && ld.first_hour) || [];
+        const fmap = {};
+        fh.forEach(e => { if (e && e.line && e.rate != null) fmap[e.line] = Number(e.rate); });
+        if (Object.keys(fmap).length) rec.first_hour = fmap;
+      } catch (e2) {}
+      if (Object.keys(rec.lines).length || rec.first_hour) h.push(rec);
     }
   } catch (e) {}
   return h;
 }
+// ── 2026-08-25: 趋势取数 — 按模式返回某天记录的数值表 {line: 值} ──
+function trendValsOf(d) {
+  if (!d) return {};
+  return (trendMode === "first") ? (d.first_hour || {}) : (d.lines || {});
+}
 // 线体名 → 首字母简称 (2026-08-20 15:30: 用户要求只写首字母/系列字母, 小图标一排, 空间留给图表)
 // Final A line→A, Final B Line→B, Final C line→C, Final D line→D, Motor H-Series→H, Motor S-Series→S, Motor F-Series→F, Motor WL→WL
 function tinyName(n) {
+  // 2026-08-25: Excel 车间·系列名 (RPO1·F系列 / PRO2·A) → 取系列字母
+  const s0 = String(n || "");
+  const dot = s0.indexOf("·");
+  if (dot >= 0) {
+    const tail = s0.slice(dot + 1).replace(/系列.*$/i, "").trim().toUpperCase();
+    if (tail) return tail.length > 2 ? tail.slice(0, 2) : tail;
+  }
   const s = String(n || "").replace(/ line$/i, "").replace(/-Series$/i, "").trim();
   const low = String(n || "").toLowerCase();
   if (low.indexOf("final a") >= 0) return "A";
@@ -2435,24 +2579,36 @@ function renderTrend() {
   const wrap = document.getElementById("trend-lines");
   const hist = getTrendHist();
   const lineNames = [];
-  hist.forEach(d => { (Object.keys(d.lines || {})).forEach(n => { if (lineNames.indexOf(n) < 0) lineNames.push(n); }); });
-  // ★ 标题: 动态时间范围 (2026-08-21 用户要求: 写清楚哪天到哪天的趋势, 每天自动更新)
+  hist.forEach(d => { (Object.keys(trendValsOf(d))).forEach(n => { if (lineNames.indexOf(n) < 0) lineNames.push(n); }); });
+  // ★ 标题: 动态时间范围 + 数据源模式 (2026-08-25: 达成率/首小时切换)
   const ttl = document.getElementById("trendTitleText");
   if (ttl) {
     const zh = (typeof lang !== "undefined") ? (lang === "zh") : true;
+    const label = trendMode === "first" ? (zh ? "⏰ 首小时达成趋势" : "⏰ First-Hour Trend") : (zh ? "📈 达成率趋势" : "📈 Rate Trend");
     if (hist.length) {
       const d0 = String(hist[0].date || "").slice(5);
       const d1 = String(hist[hist.length - 1].date || "").slice(5);
-      ttl.textContent = (zh ? "📈 达成率趋势" : "📈 Rate Trend") + " · " + d0 + " → " + d1 + (zh ? " 每日更新" : " · daily");
+      ttl.textContent = label + " · " + d0 + " → " + d1 + (zh ? " 每日更新" : " · daily");
     } else {
-      ttl.textContent = zh ? "📈 达成率趋势分析" : "📈 Rate Trend";
+      ttl.textContent = label + (zh ? "分析" : "");
     }
   }
-  // 默认展示: 按 MAIN_TREND_LINES 名单顺序筛(排除TREND_EXCLUDE), 2026-08-21 13:02 用户要求: 不补位, 固定就显示名单里前7条(现为 Final A/B/C/D + Motor H/S/F)
+  // 模式按钮高亮
+  const rb = document.getElementById("trendModeRateBtn");
+  const fb = document.getElementById("trendModeFirstBtn");
+  if (rb) rb.style.background = trendMode === "rate" ? "var(--accent)" : "";
+  if (fb) fb.style.background = trendMode === "first" ? "var(--accent)" : "";
+  const hint = document.getElementById("trendModeHint");
+  if (hint) hint.textContent = trendMode === "first" ? ((typeof lang !== "undefined" && lang === "zh") ? "首小时=8-9点" : "first hour 8-9am") : "";
+  // 默认展示线体: rate 模式按 MAIN_TREND_LINES 名单前7条; first 模式直接取最新一天全部 Excel 线体前7条 (2026-08-25)
   const last = hist[hist.length - 1] || {};
-  const lineNamesAll = Object.keys(last.lines || {});
-  const avail = [];
-  MAIN_TREND_LINES.forEach(n => { if (lineNamesAll.indexOf(n) >= 0 && TREND_EXCLUDE.indexOf(n) < 0 && avail.indexOf(n) < 0 && avail.length < 7) avail.push(n); });
+  const lineNamesAll = Object.keys(trendValsOf(last));
+  let avail = [];
+  if (trendMode === "first") {
+    lineNamesAll.forEach(n => { if (TREND_EXCLUDE.indexOf(n) < 0 && avail.indexOf(n) < 0 && avail.length < 7) avail.push(n); });
+  } else {
+    MAIN_TREND_LINES.forEach(n => { if (lineNamesAll.indexOf(n) >= 0 && TREND_EXCLUDE.indexOf(n) < 0 && avail.indexOf(n) < 0 && avail.length < 7) avail.push(n); });
+  }
   // 2026-08-21 12:01 用户要求: 点击卡片=展开放大(不再删除) → 趋势选择只增不减, 始终补齐主要8条
   // 清理旧状态: 删除之前点击遗留的隐藏选择, 保证主要线体全部恢复显示
   try { localStorage.removeItem(TREND_SEL_KEY); } catch (e) {}
@@ -2490,14 +2646,14 @@ function drawTrend() {
     return;
   }
   const names = Object.keys(trendSel).filter(n => trendSel[n]);
-  // 按最新达成率升序排列(最差的排前面), 名字作为唯一标识, 不再靠颜色区分
+  // 按最新值升序排列(最差的排前面), 名字作为唯一标识, 不再靠颜色区分
   const last = days[days.length - 1];
-  const order = names.slice().sort((a, b) => (Number(last.lines && last.lines[a]) || 0) - (Number(last.lines && last.lines[b]) || 0));
+  const order = names.slice().sort((a, b) => (Number(trendValsOf(last)[a]) || 0) - (Number(trendValsOf(last)[b]) || 0));
   // 全局 Y 轴统一 60%~120%, 保证跨线体可比, 100% 目标线固定
   const yMin = 60, yMax = 120;
   const cards = order.map((n, li) => {
     const color = TREND_COLORS[li % TREND_COLORS.length];
-    const vals = days.map(d => { const v = Number(d.lines && d.lines[n]); return isNaN(v) ? null : v; });
+    const vals = days.map(d => { const v = Number(trendValsOf(d)[n]); return isNaN(v) ? null : v; });
     const lastV = vals[vals.length - 1];
     const prevV = vals[vals.length - 2];
     let arrow = "", arrowCls = "";
@@ -2807,7 +2963,7 @@ function drawTrendDetailLine() {
   xIx.forEach(ix => ctx.fillText(String(days[ix].date || "").slice(5), padL + ix * xStep - 12, H - 7));
   // 数据线 + 数据标签
   const color = TREND_COLORS[0];
-  const vals = days.map(d => { const v = Number(d.lines && d.lines[n]); return isNaN(v) ? null : v; });
+  const vals = days.map(d => { const v = Number(trendValsOf(d)[n]); return isNaN(v) ? null : v; });
   const pts = [];
   vals.forEach((v, ix) => {
     if (v == null) return;
@@ -2833,7 +2989,7 @@ function drawTrendDetailLine() {
 
 // ── 趋势详情: 大图 + 形态切换 (全部线/仅选中/仅≥100%) ──
 function renderDetailTrend(title, modes, src, body, zh) {
-  title.textContent = zh ? "📈 达成率趋势 · 详细大图" : "📈 Rate Trend · Detailed";
+  title.textContent = (trendMode === "first" ? (zh ? "⏰ 首小时达成趋势 · 详细大图" : "⏰ First-Hour Trend · Detailed") : (zh ? "📈 达成率趋势 · 详细大图" : "📈 Rate Trend · Detailed"));
   const hist = getTrendHist();
   if (!hist.length) {
     body.innerHTML = "<div style='color:var(--gray);padding:30px;text-align:center'>" + (zh ? "暂无历史数据 — 每日17:00自动快照后出现" : "No history — appears after daily 17:00 snapshot") + "</div>";
@@ -2850,9 +3006,9 @@ function renderDetailTrend(title, modes, src, body, zh) {
   body.innerHTML = "<div id='detailTrendLines' style='display:flex;flex-wrap:wrap;gap:3px 4px;margin-bottom:8px;flex-shrink:0'></div><canvas id='chartTrendDetail' style='flex:1;min-height:0;width:100%'></canvas>";
   const wrap = document.getElementById("detailTrendLines");
   const lineNames = [];
-  hist.forEach(d => { Object.keys(d.lines || {}).forEach(n => { if (lineNames.indexOf(n) < 0) lineNames.push(n); }); });
+  hist.forEach(d => { Object.keys(trendValsOf(d)).forEach(n => { if (lineNames.indexOf(n) < 0) lineNames.push(n); }); });
   const last = hist[hist.length - 1] || {};
-  lineNames.sort((a, b) => (Number(last.lines && last.lines[b]) || 0) - (Number(last.lines && last.lines[a]) || 0));
+  lineNames.sort((a, b) => (Number(trendValsOf(last)[b]) || 0) - (Number(trendValsOf(last)[a]) || 0));
   wrap.innerHTML = lineNames.map((n, i) => {
     const c = TREND_COLORS[i % TREND_COLORS.length];
     const on = trendSel[n] ? "on" : "";
@@ -2891,13 +3047,13 @@ function drawTrendDetail() {
   let names = Object.keys(trendSel).filter(n => trendSel[n]);
   if (trendDetailMode === "all") {
     const all = [];
-    hist.forEach(d => { Object.keys(d.lines || {}).forEach(n => { if (all.indexOf(n) < 0) all.push(n); }); });
+    hist.forEach(d => { Object.keys(trendValsOf(d)).forEach(n => { if (all.indexOf(n) < 0) all.push(n); }); });
     names = all;
   } else if (trendDetailMode === "over100") {
-    names = names.filter(n => { const v = Number(hist[hist.length - 1].lines && hist[hist.length - 1].lines[n]); return !isNaN(v) && v >= 100; });
+    names = names.filter(n => { const v = Number(trendValsOf(hist[hist.length - 1])[n]); return !isNaN(v) && v >= 100; });
   }
   let maxV = 100;
-  days.forEach(d => { Object.keys(d.lines || {}).forEach(n => { const v = Number(d.lines[n]); if (!isNaN(v) && v > maxV) maxV = v; }); });
+  days.forEach(d => { Object.keys(trendValsOf(d)).forEach(n => { const v = Number(trendValsOf(d)[n]); if (!isNaN(v) && v > maxV) maxV = v; }); });
   maxV = Math.ceil(maxV / 10) * 10;
   ctx.strokeStyle = "#21262d"; ctx.fillStyle = "#8b949e"; ctx.font = "10px sans-serif";
   for (let i = 0; i <= 4; i++) {
@@ -2922,7 +3078,7 @@ function drawTrendDetail() {
     ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
     const pts = [];
     days.forEach((d, ix) => {
-      const v = Number(d.lines && d.lines[n]);
+      const v = Number(trendValsOf(d)[n]);
       if (isNaN(v)) return;
       const x = padL + ix * xStep;
       const y = padT + ch - (ch * Math.min(v, maxV) / maxV);
@@ -2937,7 +3093,7 @@ function drawTrendDetail() {
     if (pts.length) {
       const last = pts[pts.length - 1];
       ctx.font = "bold 10px sans-serif";
-      ctx.fillText(tinyName(n) + " " + Math.round(Number(days[days.length - 1].lines[n])) + "%", Math.min(last[0] + 4, W - 52), last[1] - 6);
+      ctx.fillText(tinyName(n) + " " + Math.round(Number(trendValsOf(days[days.length - 1])[n])) + "%", Math.min(last[0] + 4, W - 52), last[1] - 6);
     }
   });
 }

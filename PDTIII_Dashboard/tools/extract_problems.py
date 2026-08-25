@@ -20,7 +20,7 @@
 """
 import os, sys, re, glob, datetime, urllib.request, urllib.parse, json, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_data_lib import load_config, log, read_live_data, write_live_data, to_wsl_path
+from live_data_lib import load_config, log, read_live_data, write_live_data, to_wsl_path, live_data_path
 
 THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 
@@ -299,6 +299,117 @@ def extract_ws(ws, date_str, translate=True):
                 })
     return entries
 
+def extract_first_hour(ws, date_str):
+    """提取每个系列 08:00-09:00 首小时达成 (Target/Actual/达成率).
+
+    首小时 = 早上 8-9 点 (系统周一至周五运作, 2026-08-25 用户需求).
+    所有线体都记录 (无论有无问题), 与 extract_ws 只记问题不同.
+    返回 [{date, ws, series, line, target, actual, rate}]  rate=actual/target*100 (保留1位)
+    """
+    rows = list(ws.iter_rows(values_only=True))
+    if len(rows) < 2:
+        return []
+    # 找表头行: 含「问题点」(与 extract_ws 同逻辑)
+    header_row = None
+    for i, row in enumerate(rows):
+        vals = [str(v) if v is not None else "" for v in row]
+        if any("问题点" in v or "problem" in v.lower() or "ปัญหา" in v for v in vals):
+            header_row = i
+            break
+    if header_row is None:
+        if len(rows) >= 2 and any(str(v) for v in rows[1]):
+            header_row = 1
+        else:
+            return []
+    hdr = rows[header_row]
+    series_row = rows[header_row - 1] if header_row > 0 else None
+    out = []
+    for ci, v in enumerate(hdr):
+        if v is None:
+            continue
+        vs = str(v).strip()
+        if vs != "问题点" and "problem" not in vs.lower() and "ปัญหา" not in vs:
+            continue
+        series = ""
+        if series_row is not None and ci < len(series_row) and series_row[ci] is not None:
+            series = str(series_row[ci]).strip()
+        for ri in range(header_row + 1, len(rows)):
+            row = rows[ri]
+            if ci >= len(row) or row[ci] is None:
+                continue
+            cell = str(row[ci]).strip()
+            if not cell:
+                continue
+            for time_range, block in split_blocks(cell):
+                # 首小时 = 开始时间 08:00 (兼容 8:00 / 08.00)
+                if not re.match(r"^\s*0?8\s*[:：.]\s*00", time_range):
+                    continue
+                tg, ac, imp, desc = extract_block_info(block)
+                if tg is None or ac is None or tg <= 0:
+                    continue
+                rate = round(ac * 100.0 / tg, 1)
+                line_name = (ws.title + "·" + series) if series else ws.title
+                out.append({
+                    "date": date_str,
+                    "ws": ws.title,
+                    "series": series,
+                    "line": line_name,
+                    "target": tg,
+                    "actual": ac,
+                    "rate": rate,
+                })
+    # 按车间·系列排序, 前端稳定显示
+    out.sort(key=lambda e: (e["ws"], e["series"]))
+    return out
+
+def merge_first_hour_into_history(first_hour, date_str):
+    """把当天首小时达成率 {line: rate} 合并进 live-data.js 的 __HISTORY__ 当天记录.
+
+    返回合并后的 history 数组 (供 write_live_data 写入); 读取失败返回 None (沿用旧保留逻辑).
+    """
+    fh_map = {}
+    for e in first_hour:
+        if e.get("rate") is not None and e.get("line"):
+            try:
+                fh_map[e["line"]] = round(float(e["rate"]), 1)
+            except (TypeError, ValueError):
+                pass
+    if not fh_map:
+        return None
+    try:
+        path = live_data_path()
+        text = open(path, "r", encoding="utf-8").read()
+        start = text.rfind("window.__HISTORY__ =")
+        if start == -1:
+            return None
+        s2 = text.find("[", start)
+        depth = 0; end = -1
+        for i in range(s2, len(text)):
+            if text[i] == "[": depth += 1
+            elif text[i] == "]":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end == -1:
+            return None
+        hist = json.loads(text[s2:end])
+    except Exception:
+        return None
+    found = False
+    for i, h in enumerate(hist):
+        if h.get("date") == date_str:
+            h = dict(h)
+            h["first_hour"] = fh_map
+            hist[i] = h
+            found = True
+            break
+    if not found:
+        hist.append({"date": date_str, "first_hour": fh_map})
+        hist.sort(key=lambda h: str(h.get("date", "")))
+        hist = hist[-120:]
+    return hist
+
 def ai_aggregate_top3(entries):
     """AI 语义判断 + 精准分组 TOP3.
 
@@ -443,10 +554,14 @@ def main():
         log(f"打开Excel失败 {path}: {e}")
         return 1
     entries = []
+    first_hour = []
     for name in wb.sheetnames:
         entries.extend(extract_ws(wb[name], date_str, translate=True))
+        first_hour.extend(extract_first_hour(wb[name], date_str))
     wb.close()
     data = read_live_data()
+    # ── 2026-08-25: 首小时达成 (8-9点, 周一至周五) 当天全量数据, 前端历史/排名用 ──
+    data["first_hour"] = first_hour
     # ── 2026-08-21: 只保留当天数据 (新的一天从空开始, 旧日期条目不再混入 Top3) ──
     #    历史数据由 save_daily_history.py 每日17:00归档到 history/*.json + __HISTORY__
     problems = []
@@ -455,8 +570,10 @@ def main():
     # ── 2026-08-21 13:30: AI 语义聚合主要问题点 TOP3 (同一问题跨时段合并累计影响) ──
     #    用户要求: 不是某一时段的最大值, 而是主要问题点; 前端优先渲染 problems_top, 无则退回全量
     data["problems_top"] = ai_aggregate_top3(entries)
-    write_live_data(data)
-    log(f"v5提取完成: {os.path.basename(path)} → 今日{date_str} 全量{len(entries)}条 (累计{len(problems)}条" + (f", AI TOP3={len(data['problems_top'])}条" if data.get("problems_top") else "") + ")")
+    # ── 2026-08-25: 首小时达成 → 合并进 __HISTORY__ 当天记录 (趋势/历史跨天保留) ──
+    hist = merge_first_hour_into_history(first_hour, date_str)
+    write_live_data(data, history=hist)
+    log(f"v5提取完成: {os.path.basename(path)} → 今日{date_str} 全量{len(entries)}条 (累计{len(problems)}条" + (f", AI TOP3={len(data['problems_top'])}条" if data.get("problems_top") else "") + f", 首小时{len(first_hour)}线)")
     # 提取成功 → 更新签名状态 (失败则保留旧状态, 下次cron自动重试)
     try:
         with open(state_file, "w", encoding="utf-8") as f:
