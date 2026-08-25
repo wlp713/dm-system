@@ -2298,7 +2298,7 @@ setInterval(refresh, 10000);
 // ★ 标题秒表: 每秒刷新日期/班次/时段(精确到秒)
 setInterval(updatePeriodLabel, 1000);
 </script>
-<script src="live-data.js?v=20260825b"></script>
+<script src="live-data.js?v=20260825c"></script>
 <script>
 "use strict";
 /* ═══════════════════════════════════════════════════════════
@@ -2499,25 +2499,31 @@ function getTrendHist() {
     try { const l = JSON.parse(localStorage.getItem(TREND_HIST_KEY) || "[]"); if (Array.isArray(l) && l.length) h = l; } catch (e) {}
   }
   h = (h || []).slice().filter(d => !isWeekendDate(d && d.date));
-  // ★ 当天实时数据合并: 若最后一天不是今天(且今天是工作日), 则追加今日记录
-  //   rate 模式: state.lines 的 eff (达成率); first 模式: __LIVE_DATA__.first_hour (首小时8-9点)
+  // ★ 当天实时数据补全: 若最后一天不是今天则追加今日记录; 若是今天但 lines/first_hour 为空(extract提前写入的快照壳)
+  //   也从实时数据补齐 — 2026-08-25 修复: merge_first_hour 把当天记录提前写进 __HISTORY__ 导致卡片消失
   try {
     const today = todayKey();
     const last = h.length ? h[h.length - 1] : null;
-    if (!isWeekendDate(today) && (!last || last.date !== today) && state && state.lines && state.lines.length) {
-      const rec = { date: today, lines: {} };
-      state.lines.forEach(l => {
-        if (l && l.name && l.eff != null && !isNaN(l.eff)) rec.lines[l.name] = Number(l.eff);
-      });
-      // 2026-08-25: 首小时达成 (当天实时, 每10分钟由 extract 更新)
-      try {
-        const ld = (typeof window.__LIVE_DATA__ !== "undefined") ? window.__LIVE_DATA__ : null;
-        const fh = (ld && ld.first_hour) || [];
-        const fmap = {};
-        fh.forEach(e => { if (e && e.line && e.rate != null) fmap[e.line] = Number(e.rate); });
-        if (Object.keys(fmap).length) rec.first_hour = fmap;
-      } catch (e2) {}
-      if (Object.keys(rec.lines).length || rec.first_hour) h.push(rec);
+    if (!isWeekendDate(today) && state && state.lines && state.lines.length) {
+      const isToday = !!(last && last.date === today);
+      const rec = isToday ? last : { date: today, lines: {}, first_hour: {} };
+      // rate 模式: 当天 lines 为空 → 用 state.lines 的 eff 补齐 (17:00快照后才可能有完整 lines)
+      if (!Object.keys(rec.lines || {}).length) {
+        state.lines.forEach(l => {
+          if (l && l.name && l.eff != null && !isNaN(l.eff)) rec.lines[l.name] = Number(l.eff);
+        });
+      }
+      // first 模式: 当天 first_hour 为空 → 用 __LIVE_DATA__.first_hour 补齐 (每10分钟由 extract 更新)
+      if (!Object.keys(rec.first_hour || {}).length) {
+        try {
+          const ld = (typeof window.__LIVE_DATA__ !== "undefined") ? window.__LIVE_DATA__ : null;
+          const fh = (ld && ld.first_hour) || [];
+          const fmap = {};
+          fh.forEach(e => { if (e && e.line && e.rate != null) fmap[e.line] = Number(e.rate); });
+          if (Object.keys(fmap).length) rec.first_hour = fmap;
+        } catch (e2) {}
+      }
+      if (!isToday && (Object.keys(rec.lines).length || Object.keys(rec.first_hour || {}).length)) h.push(rec);
     }
   } catch (e) {}
   return h;
