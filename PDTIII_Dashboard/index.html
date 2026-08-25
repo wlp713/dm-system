@@ -2302,7 +2302,7 @@ setInterval(refresh, 10000);
 // ★ 标题秒表: 每秒刷新日期/班次/时段(精确到秒)
 setInterval(updatePeriodLabel, 1000);
 </script>
-<script src="live-data.js?v=20260825e"></script>
+<script src="live-data.js?v=20260825f"></script>
 <script>
 "use strict";
 /* ═══════════════════════════════════════════════════════════
@@ -2472,11 +2472,11 @@ const TREND_HIST_KEY = "pdtiii_trend_hist_v2";
 const TREND_SEL_KEY = "pdtiii_trend_sel_v2";
 // ── 2026-08-25: 趋势数据源模式: rate=达成率(默认) | first=首小时达成率(8-9点) ──
 const TREND_MODE_KEY = "pdtiii_trend_mode_v1";
+// ★ 2026-08-25 用户要求: 不需要点击, 默认显示日达成率 — 每次打开默认 rate, 不持久化上次选择
 let trendMode = "rate";
-try { trendMode = localStorage.getItem(TREND_MODE_KEY) === "first" ? "first" : "rate"; } catch (e) { trendMode = "rate"; }
 function setTrendMode(m) {
   trendMode = (m === "first") ? "first" : "rate";
-  try { localStorage.setItem(TREND_MODE_KEY, trendMode); } catch (e) {}
+  // 不再写入 localStorage: 刷新/重新打开后默认回到「达成率」
   const rb = document.getElementById("trendModeRateBtn");
   const fb = document.getElementById("trendModeFirstBtn");
   if (rb) rb.style.background = trendMode === "rate" ? "var(--accent)" : "";
